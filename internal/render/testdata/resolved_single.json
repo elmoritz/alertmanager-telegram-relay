@@ -1,0 +1,40 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"HostDown\", instance=\"server-1\"}",
+  "status": "resolved",
+  "receiver": "telegram",
+  "groupLabels": {
+    "alertname": "HostDown",
+    "instance": "server-1"
+  },
+  "commonLabels": {
+    "alertname": "HostDown",
+    "instance": "server-1",
+    "job": "node",
+    "severity": "critical"
+  },
+  "commonAnnotations": {
+    "summary": "server-1 has not answered for 5 minutes",
+    "description": "The node exporter on server-1 stopped answering scrapes.\nCheck power and network."
+  },
+  "externalURL": "http://alertmanager:9093",
+  "alerts": [
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "HostDown",
+        "instance": "server-1",
+        "job": "node",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "server-1 has not answered for 5 minutes",
+        "description": "The node exporter on server-1 stopped answering scrapes.\nCheck power and network."
+      },
+      "startsAt": "2026-03-02T04:56:00Z",
+      "endsAt": "2026-03-02T07:01:00Z",
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=up+%3D%3D+0",
+      "fingerprint": "a1b2c3d4e5f60001"
+    }
+  ]
+}

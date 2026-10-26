@@ -1,0 +1,14 @@
+ℹ️ <b>ContainerRestarting</b> · 9 firing
+
+app on server-1 restarted 3 times in 10 minutes
+app on server-2 restarted 3 times in 10 minutes
+app on server-3 restarted 3 times in 10 minutes
+app on server-4 restarted 3 times in 10 minutes
+app on server-5 restarted 3 times in 10 minutes
+app on server-6 restarted 3 times in 10 minutes
+…and 5 more
+since <tg-time unix="1772431200" format="wt">Mon 07:00 CET</tg-time> (<tg-time unix="1772431200" format="r">1h 19m ago</tg-time>)
+---
+➕ 9 more firing: app on server-1 restarted 3 times in 10 minutes, app on server-2 restarted 3 times in 10 minutes, app on server-3 restarted 3 times in 10 minutes, …and 6 more
+---
+⏰ still firing, 2h 22m

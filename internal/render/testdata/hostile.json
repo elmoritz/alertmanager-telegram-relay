@@ -1,0 +1,25 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"Probe</b><a href=\\\"tg://user?id=1\\\">x</a>\"}",
+  "status": "firing",
+  "receiver": "telegram",
+  "groupLabels": {"alertname": "Probe</b><a href=\"tg://user?id=1\">click</a>"},
+  "commonLabels": {"alertname": "Probe</b><a href=\"tg://user?id=1\">click</a>", "instance": "<tg-spoiler>x</tg-spoiler> & 'quoted' \"double\"", "severity": "critical"},
+  "commonAnnotations": {},
+  "externalURL": "http://alertmanager:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {"alertname": "Probe</b><a href=\"tg://user?id=1\">click</a>", "instance": "<tg-spoiler>x</tg-spoiler> & 'quoted' \"double\"", "severity": "critical"},
+      "annotations": {
+        "summary": "<script>alert(1)</script> &amp; already-escaped &lt;b&gt;",
+        "description": "</blockquote><b>bold?</b>\n<tg-time unix=\"1\">time?</tg-time> line two",
+        "runbook_url": "javascript:alert(1)"
+      },
+      "startsAt": "2026-03-02T04:56:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "javascript:alert(1)",
+      "fingerprint": "d1b2c3d4e5f60001"
+    }
+  ]
+}

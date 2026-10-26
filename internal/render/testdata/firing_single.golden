@@ -1,0 +1,11 @@
+🔥 <b>HostDown</b> · server-1
+
+server-1 has not answered for 5 minutes
+since <tg-time unix="1772427360" format="wt">Mon 05:56 CET</tg-time> (<tg-time unix="1772427360" format="r">2h 23m ago</tg-time>)
+
+<blockquote expandable>The node exporter on server-1 stopped answering scrapes.
+Check power and network.</blockquote>
+---
+➕ 1 more firing: server-1 has not answered for 5 minutes
+---
+⏰ still firing, 2h 22m

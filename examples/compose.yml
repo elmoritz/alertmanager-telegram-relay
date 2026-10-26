@@ -1,0 +1,40 @@
+# Example: the relay next to Alertmanager on a shared Docker network.
+# All values are placeholders. Create the two secret files first, readable
+# by the container user (uid 65532), e.g. `chmod 0444 secrets/*`.
+services:
+  alertmanager-telegram-relay:
+    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.1.0
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      WEBHOOK_SECRET_FILE: /run/secrets/relay_webhook_secret
+      TELEGRAM_CHAT_IDS: "-1001234567890"
+      TELEGRAM_ADMIN_USER_IDS: "123456789"
+      # Listen on the container network so Alertmanager can reach it. The
+      # port is deliberately not published to the host.
+      LISTEN_ADDR: 0.0.0.0:9095
+      TIMEZONE: Europe/Berlin
+    secrets: [telegram_bot_token, relay_webhook_secret]
+    volumes:
+      - relay-data:/data
+    healthcheck:
+      test: ["CMD", "/relay", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+    networks: [monitoring]
+
+secrets:
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token
+  relay_webhook_secret:
+    file: ./secrets/relay_webhook_secret
+
+volumes:
+  relay-data:
+
+networks:
+  monitoring:
+    external: true
