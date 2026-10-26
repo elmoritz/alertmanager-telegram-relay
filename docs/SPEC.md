@@ -1,7 +1,7 @@
 # alertmanager-telegram-relay: specification
 
-Status: **design, nothing implemented yet.** This document is the source of truth
-for what the relay does. Change it in the same PR as the behaviour it
+Status: **v0.1 implemented** (see §13); later milestones are design. This
+document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
 
@@ -40,11 +40,12 @@ Alertmanager ──POST /webhook (bearer secret)──▶ relay ──Bot API (H
 ### Language and dependencies
 
 Go (current stable). Standard library first: `net/http`, `html/template`,
-`log/slog`, `encoding/json`. Planned third-party dependencies, each needing
-nothing beyond itself:
+`log/slog`, `encoding/json`. Third-party dependencies:
 
-- `go.etcd.io/bbolt`: state store
-- `github.com/prometheus/client_golang`: `/metrics`
+- `go.etcd.io/bbolt`: state store (needs only `golang.org/x/sys`)
+- `github.com/prometheus/client_golang`: `/metrics` (brings
+  `prometheus/client_model`, `prometheus/common`, `prometheus/procfs`,
+  `google.golang.org/protobuf` and two small helpers)
 
 No Telegram SDK: the handful of Bot API methods used are called directly through
 one small client (this is also where the token-redaction rule from SECURITY.md
@@ -64,6 +65,14 @@ The relay answers `200` as soon as the notification is stored and queued, then
 delivers to Telegram asynchronously with retries. If storing fails it answers
 `5xx` so Alertmanager retries.
 
+Other answers: `405` for anything but `POST`, `401` without the right bearer
+secret, `415` unless `Content-Type: application/json`, `413` over 1 MiB, `400`
+for a payload that is not version `"4"`, has no `groupKey`, no alerts or an
+unknown status. Responses never echo request content.
+
+The queue lives in the state file, one queue per chat, so a notification
+accepted with `200` survives a restart and is delivered on the next start.
+
 ## 4. Message lifecycle
 
 The unit is the **incident**: one Alertmanager group (`groupKey`) from its first
@@ -76,13 +85,30 @@ firing notification until all of its alerts are resolved.
 | Same incident, alert set changed (some resolved, some still firing) | `editMessageText` only | no |
 | Same incident, nothing changed (Alertmanager `repeat_interval` reminder) | short reply to the original: "still firing, 4 h" | configurable: `REMINDERS=reply\|silent\|off` (default `reply`) |
 | Group resolved | `editMessageText` to the resolved layout, remove buttons; close incident | no; optional silent reply (`RESOLVE_REPLY=true`) |
-| Original message can no longer be edited or was deleted | fall back to a new message; store the new `message_id` | yes |
+| Group resolved, but no open incident (state lost or expired) | `sendMessage` with the resolved layout | no (silent) |
+| Original message can no longer be edited or was deleted | fall back to a new message; store the new `message_id` | yes (no, for a resolve) |
 
+- Alerts are told apart by Alertmanager's `fingerprint` (by their sorted label
+  set if a sender omits it). "Alert added" means a fingerprint is firing that
+  was not firing in the previous notification.
+- The message is edited only when its text actually changes. The fallback
+  text inside `<tg-time>` entities is ignored for this comparison: it drifts
+  with the clock while clients render the entity live.
+- The reminder reply reads "⏰ still firing, 4h" (time since the incident
+  opened); the added reply "➕ 1 more firing: <summaries>"; the resolve reply
+  "✅ resolved after 2h 5m".
+- Replies are best-effort: if one cannot be delivered, the incident is still
+  updated.
 - An incident whose alerts fire again after it was closed is a **new** incident
   (new message), so the history stays truthful.
-- Incidents are expired from the store after `INCIDENT_TTL` (default 30 days)
-  even if never resolved (Alertmanager can lose a resolve across restarts).
-- **(verify)** limits on editing old bot messages in groups and channels.
+- Incidents are expired from the store `INCIDENT_TTL` (default 30 days) after
+  their **last** notification even if never resolved (Alertmanager can lose a
+  resolve across restarts). An incident that keeps receiving reminders is not
+  expired.
+- Editing old messages: the Bot API documents a 48-hour edit limit only for
+  business messages, not for a bot's own messages in groups and channels.
+  Whatever the reason an edit fails ("message to edit not found", "message
+  can't be edited"), the relay falls back to a new message.
 
 ### Layout
 
@@ -93,23 +119,42 @@ and not a different look:
 ⚠️ HostDown · server-1                      ← severity emoji, alertname, shared instance
                                               (· N firing · M resolved for groups)
 server-1 has not answered for 5 minutes      ← summary, one line per alert (max 6, then "…and N more")
-since Mon 04:56 (2h 23m)                     ← <tg-time>, so it shows in the reader's zone
+since Mon 04:56 (2h 23m ago)                 ← <tg-time> "wt" and "r", so it shows in the reader's zone
 
 ▸ description, collapsed                     ← <blockquote expandable>, first alert only, clipped
-[🔕 1h] [🔕 24h] [📈 Grafana] [📖 Runbook]    ← inline keyboard
+[🔕 1h] [🔕 24h] [📈 Grafana] [📖 Runbook]    ← inline keyboard (from v0.2)
 ```
+
+The summary line is the alert's `summary` annotation, else its `instance`
+label, else its `alertname`. The description is the `description` annotation,
+else `message`. The text inside `<tg-time>` is a fallback for clients without
+date-time entities, formatted in `TIMEZONE`.
 
 Resolved: `✅ HostDown · server-1 resolved`, then one struck-through line per
 alert with how long it lasted ("after 2h 5m").
 
-- Templates are Go `html/template` files. A default ships in the binary; a
-  user-supplied template file can replace it (`TEMPLATE_FILE`). The template
-  data mirrors Alertmanager's (`.Alerts.Firing`, `.CommonLabels`, …) so existing
-  Alertmanager templates port with little change.
-- Severity emoji map from the `severity` label: `critical` 🔥, `warning` ⚠️,
-  anything else ℹ️. Configurable.
-- Length: rendered output is measured; if over 4096 characters, the relay
-  re-renders with fewer alerts and a shorter description until it fits.
+- Templates are Go `html/template` files. A default ships in the binary
+  (`internal/render/default.tmpl`); a user-supplied file (`TEMPLATE_FILE`) can
+  redefine any of its blocks: `message`, `firing`, `resolved`, `title`,
+  `severity_emoji`, `added`, `reminder`, `resolve_reply`. The template data
+  mirrors Alertmanager's (`.Status`, `.Alerts.Firing`, `.CommonLabels`,
+  `.GroupLabels`, `.CommonAnnotations`, `.ExternalURL`, `.TruncatedAlerts`) so
+  existing Alertmanager templates port with little change, plus `.Added`,
+  `.OpenedAt`, `.Now` and `.Limits`. Helper functions: `clip`, `oneline`,
+  `first`, `more`, `summary`, `description`, `alertname`, `severity`,
+  `earliest`, `duration`, `httpURL`, `tgtime`, `tgago`. The templates are tried
+  on a sample notification at startup; a broken one stops the relay from
+  starting.
+- Severity emoji from the `severity` label (common label, else the most severe
+  firing alert): `critical` 🔥, `warning` ⚠️, anything else ℹ️. Configurable by
+  redefining `severity_emoji`.
+- Length: Telegram counts 4096 UTF-16 code units after entity parsing; the
+  relay measures the same way. If a message is too long, it re-renders with
+  stepwise smaller `.Limits` (alerts listed 6 → 3 → 1, description 1500 → 500
+  → 200 → hidden, single values 200 → 60 characters) until it fits. If even
+  that does not fit, or the template fails at run time, or Telegram rejects the
+  text anyway, a built-in minimal message (emoji, clipped alertname, count) is
+  sent instead. A notification never turns into no message.
 
 ## 5. Buttons
 
@@ -166,44 +211,64 @@ skipped, never delays or blocks the text message.
   does not delay others.
 - Network errors: retry with backoff for up to 10 minutes, then drop with an
   error log and a metric. Alertmanager's own retry covers longer outages.
+- Network errors and `5xx`: retried with exponential backoff (1 s doubling to
+  1 min). Other `4xx` errors are permanent and not retried.
 - Shutdown on SIGTERM: stop accepting webhooks, flush the queue for up to 10 s,
-  close the store.
+  close the store. Whatever is still queued stays in the state file and is
+  delivered on the next start.
 - One relay instance per bot token: Telegram allows only one `getUpdates`
   consumer.
 
 ## 10. Configuration
 
-All configuration by environment; every secret also as `*_FILE`.
+All configuration by environment; every secret also as `*_FILE` (setting both
+is an error). Invalid values stop the relay at startup with an error that
+names the variable but never echoes its value.
 
-| Variable | Required | Default | Meaning |
-|---|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | yes | | Bot token from @BotFather |
-| `TELEGRAM_CHAT_IDS` | yes | | Comma-separated chats the relay posts to and accepts updates from |
-| `TELEGRAM_ADMIN_USER_IDS` | yes | | Users whose button presses are acted on |
-| `WEBHOOK_SECRET` | yes | | Bearer secret Alertmanager sends |
-| `LISTEN_ADDR` | | `127.0.0.1:9095` | Webhook, `/healthz`, `/metrics` |
-| `ALERTMANAGER_URL` | for buttons | | e.g. `http://alertmanager:9093` |
-| `ALERTMANAGER_USERNAME` / `_PASSWORD` / `_BEARER_TOKEN` | | | API auth, if any |
-| `STATE_DIR` | | `/data` | bbolt file location |
-| `TEMPLATE_FILE` | | built-in | Custom message template |
-| `TIMEZONE` | | `UTC` | Fallback text inside `<tg-time>` |
-| `SILENCE_DURATIONS` | | `1h,24h` | Silence buttons |
-| `QUIET_SEVERITIES` | | empty | Sent without sound |
-| `REMINDERS` | | `reply` | `reply`, `silent` or `off` |
-| `RESOLVE_REPLY` | | `false` | Silent reply on resolve in addition to the edit |
-| `GRAFANA_URL` | | | Dashboard button fallback, graph rendering |
-| `INCIDENT_TTL` | | `720h` | Forget unresolved incidents after this |
-| `LOG_LEVEL` | | `info` | `debug` logs IDs, never secrets |
+| Variable | Since | Required | Default | Meaning |
+|---|---|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | v0.1 | yes | | Bot token from @BotFather. Checked with `getMe` at startup: a rejected token stops the relay |
+| `TELEGRAM_CHAT_IDS` | v0.1 | yes | | Comma-separated chats the relay posts to and accepts updates from. Until v0.3, notifications go to the first |
+| `TELEGRAM_ADMIN_USER_IDS` | v0.1 | yes | | Users whose button presses are acted on (required from v0.1, used from v0.2) |
+| `WEBHOOK_SECRET` | v0.1 | yes | | Bearer secret Alertmanager sends |
+| `LISTEN_ADDR` | v0.1 | | `127.0.0.1:9095` | Webhook, `/healthz`, `/metrics` |
+| `ALERTMANAGER_URL` | v0.2 | for buttons | | e.g. `http://alertmanager:9093` |
+| `ALERTMANAGER_USERNAME` / `_PASSWORD` / `_BEARER_TOKEN` | v0.2 | | | API auth, if any |
+| `STATE_DIR` | v0.1 | | `/data` | bbolt file location (`relay.db`) |
+| `TEMPLATE_FILE` | v0.1 | | built-in | Custom message template |
+| `TIMEZONE` | v0.1 | | `UTC` | Fallback text inside `<tg-time>` |
+| `SILENCE_DURATIONS` | v0.2 | | `1h,24h` | Silence buttons |
+| `QUIET_SEVERITIES` | v0.3 | | empty | Sent without sound |
+| `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
+| `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
+| `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
+| `INCIDENT_TTL` | v0.1 | | `720h` | Forget unresolved incidents this long after their last notification |
+| `LOG_LEVEL` | v0.1 | | `info` | `debug`, `info`, `warn`, `error`; `debug` logs IDs, never secrets |
 
 ## 11. Observability
 
-- `GET /healthz`: 200 when the store is open and the last `getUpdates` poll
-  succeeded within 2 minutes.
-- `GET /metrics` (Prometheus): notifications received, Telegram calls by method
-  and result, queue length, retries, rejected updates, silences
-  created/expired, open incidents. No alert names or label values as metric
-  labels.
-- Logs: `log/slog` JSON to stdout.
+- `GET /healthz`: 200 when the store is open and (from v0.2) the last
+  `getUpdates` poll succeeded within 2 minutes. `relay healthcheck` calls it
+  and exits 0 or 1, for container health checks (the image has no shell or
+  curl).
+- `GET /metrics` (Prometheus). No alert names, label values or IDs as metric
+  labels:
+
+  | Metric | Labels |
+  |---|---|
+  | `relay_notifications_received_total` | `status` (`firing`, `resolved`) |
+  | `relay_webhook_rejected_total` | `reason` (`method`, `unauthorized`, `media_type`, `too_large`, `bad_json`, `invalid`, `store`) |
+  | `relay_telegram_requests_total` | `method`, `result` (`ok`, `error`, `ratelimited`, `network`) |
+  | `relay_delivery_retries_total` | |
+  | `relay_deliveries_dropped_total` | |
+  | `relay_template_errors_total` | |
+  | `relay_queue_length` | |
+  | `relay_open_incidents` | |
+
+  From v0.2: rejected updates (`relay_telegram_updates_rejected_total`),
+  silences created/expired.
+- Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short
+  hash of the group key, since group keys contain label values.
 
 ## 12. Delivery
 
@@ -211,17 +276,21 @@ All configuration by environment; every secret also as `*_FILE`.
   pinned by digest.
 - CI (GitHub Actions): `go vet`, `staticcheck`, `go test -race`, `govulncheck`,
   gitleaks plus the infrastructure-name check from SECURITY.md §7.
-- Release: on a `v*` tag, build multi-arch (`amd64`, `arm64`), push to
-  `ghcr.io/<owner>/alertmanager-telegram-relay:<version>` with provenance and
-  SBOM. `latest` follows the newest release.
-- `examples/`: a `compose.yml` and an Alertmanager `webhook_configs` snippet with
-  placeholder values, plus the fallback-alert rule from §9.
+- Release: on a `v*` tag, run the CI checks, then build multi-arch (`amd64`,
+  `arm64`), push to `ghcr.io/<owner>/alertmanager-telegram-relay:<version>`
+  (and `:<major>.<minor>`) with provenance and SBOM. `latest` follows the
+  newest non-prerelease.
+- `examples/`: `compose.yml`, an Alertmanager snippet (`alertmanager.yml`) with
+  the webhook receiver and the built-in Telegram fallback, and the
+  fallback-alert rules from §9 (`prometheus-rules.yml`), all with placeholder
+  values.
 
 ## 13. Milestones
 
-1. **v0.1, parity plus edit-on-resolve:** webhook with auth, allowlists, default
-   template with length control, incidents in bbolt, send/edit/reply lifecycle
-   (§4), healthz/metrics, Dockerfile, CI, release workflow, examples.
+1. **v0.1, parity plus edit-on-resolve (done):** webhook with auth,
+   allowlists, default template with length control, incidents in bbolt,
+   send/edit/reply lifecycle (§4), healthz/metrics, Dockerfile, CI, release
+   workflow, examples.
 2. **v0.2, buttons:** long polling, callback handling, silence/unsilence,
    Grafana/runbook URL buttons.
 3. **v0.3, routing:** quiet severities, multiple chats and forum topics.

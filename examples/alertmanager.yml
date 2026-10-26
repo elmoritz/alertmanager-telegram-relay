@@ -1,0 +1,26 @@
+# Alertmanager snippet: everything goes through the relay, except the alerts
+# about the relay itself, which use Alertmanager's built-in Telegram receiver
+# so they still arrive when the relay is down (docs/SPEC.md §9).
+route:
+  receiver: telegram
+  group_by: [alertname, instance]
+  routes:
+    - receiver: telegram-fallback
+      matchers:
+        - alertname=~"TelegramRelayDown|TelegramRelayWebhookFailing|TelegramRelayDroppingNotifications"
+
+receivers:
+  - name: telegram
+    webhook_configs:
+      - url: http://alertmanager-telegram-relay:9095/webhook
+        send_resolved: true # needed for edit-on-resolve
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/relay_webhook_secret
+
+  - name: telegram-fallback
+    telegram_configs:
+      - bot_token_file: /etc/alertmanager/secrets/telegram_bot_token
+        chat_id: -1001234567890
+        send_resolved: true

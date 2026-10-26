@@ -1,0 +1,33 @@
+# Fallback alerts on the relay's own health. Route them to the built-in
+# Telegram receiver (see alertmanager.yml), never through the relay.
+#
+# Scrape the relay, e.g.:
+#   scrape_configs:
+#     - job_name: alertmanager-telegram-relay
+#       static_configs:
+#         - targets: ["alertmanager-telegram-relay:9095"]
+groups:
+  - name: alertmanager-telegram-relay
+    rules:
+      - alert: TelegramRelayDown
+        expr: up{job="alertmanager-telegram-relay"} == 0 or absent(up{job="alertmanager-telegram-relay"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: The Telegram relay is down; other alerts are not reaching Telegram.
+
+      - alert: TelegramRelayWebhookFailing
+        expr: increase(alertmanager_notifications_failed_total{integration="webhook"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Alertmanager cannot deliver webhooks to the Telegram relay.
+
+      - alert: TelegramRelayDroppingNotifications
+        expr: increase(relay_deliveries_dropped_total[30m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: The Telegram relay gave up delivering notifications to Telegram.

@@ -1,0 +1,47 @@
+{{/*
+  Built-in templates. A TEMPLATE_FILE may redefine any of the {{define}}
+  blocks below; the rest stay as they are. Values are escaped automatically
+  (html/template). Respect .Limits so that long notifications shrink instead
+  of being cut off. Telegram supports only a few tags: b, i, u, s, a, code,
+  pre, blockquote [expandable], tg-spoiler, tg-time.
+*/}}
+
+{{- define "severity_emoji"}}{{if eq . "critical"}}🔥{{else if eq . "warning"}}⚠️{{else}}ℹ️{{end}}{{end}}
+
+{{- define "title"}}<b>{{alertname . | oneline | clip .Limits.Value}}</b>
+{{- with .CommonLabels.instance}} · {{oneline . | clip $.Limits.Value}}{{end}}{{end}}
+
+{{- define "message"}}{{if eq .Status "resolved"}}{{template "resolved" .}}{{else}}{{template "firing" .}}{{end}}{{end}}
+
+{{- define "firing"}}
+{{- $firing := .Alerts.Firing -}}
+{{template "severity_emoji" (severity .)}} {{template "title" .}}
+{{- if gt (len .Alerts) 1}} · {{len $firing}} firing{{with len .Alerts.Resolved}} · {{.}} resolved{{end}}{{end}}
+
+{{range first .Limits.MaxAlerts $firing}}{{summary . | oneline | clip $.Limits.Value}}
+{{end}}
+{{- with more .Limits.MaxAlerts $firing .TruncatedAlerts}}…and {{.}} more
+{{end}}
+{{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}} ({{tgago .}}){{end}}{{end}}
+{{- if $firing}}{{with description (index $firing 0) | clip $.Limits.Description}}
+
+<blockquote expandable>{{.}}</blockquote>{{end}}{{end}}
+{{- end}}
+
+{{- define "resolved" -}}
+✅ {{template "title" .}} resolved
+{{range first .Limits.MaxAlerts .Alerts}}
+<s>{{summary . | oneline | clip $.Limits.Value}}</s>{{with duration .StartsAt .EndsAt}} after {{.}}{{end}}
+{{- end}}
+{{- with more .Limits.MaxAlerts .Alerts .TruncatedAlerts}}
+…and {{.}} more{{end}}
+{{- end}}
+
+{{- define "added" -}}
+➕ {{len .Added}} more firing: {{range $i, $a := first 3 .Added}}{{if $i}}, {{end}}{{summary $a | oneline | clip 100}}{{end}}
+{{- with more 3 .Added 0}}, …and {{.}} more{{end}}
+{{- end}}
+
+{{- define "reminder"}}⏰ still firing{{with duration .OpenedAt .Now}}, {{.}}{{end}}{{end}}
+
+{{- define "resolve_reply"}}✅ resolved{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}

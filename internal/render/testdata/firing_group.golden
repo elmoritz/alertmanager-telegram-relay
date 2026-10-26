@@ -1,0 +1,11 @@
+⚠️ <b>DiskAlmostFull</b> · 2 firing · 1 resolved
+
+server-1: / is 91% full
+server-2: /srv is 95% full
+since <tg-time unix="1772422800" format="wt">Mon 04:40 CET</tg-time> (<tg-time unix="1772422800" format="r">3h 39m ago</tg-time>)
+
+<blockquote expandable>Less than 9% space left on / of server-1.</blockquote>
+---
+➕ 2 more firing: server-1: / is 91% full, server-2: /srv is 95% full
+---
+⏰ still firing, 2h 22m

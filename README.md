@@ -10,8 +10,10 @@ built-in Telegram receiver cannot do:
 - **Made for phones.** Host and age in the headline, long descriptions
   collapsed, never over Telegram's length limit.
 
-> **Status:** in design. Nothing is implemented yet. See
-> [docs/SPEC.md](docs/SPEC.md) for the full feature description and roadmap.
+> **Status:** v0.1: one message per incident, edited on resolve. Buttons come
+> in v0.2. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> and roadmap, and [examples/](examples/) for a Compose setup, the
+> Alertmanager receiver and the fallback alerts.
 
 ## How it fits
 
