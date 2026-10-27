@@ -71,6 +71,14 @@ type Data struct {
 	// Limits shrink step by step until the message fits; templates should
 	// respect them (see default.tmpl).
 	Limits Limits
+	// Silence is set while a silence made from Telegram is active.
+	Silence *Silence
+}
+
+// Silence describes a silence made through the message's buttons.
+type Silence struct {
+	Until time.Time
+	By    string // the Telegram user's first name: user content, escaped like any other
 }
 
 // Limits bound how much of a notification a template shows.
@@ -244,7 +252,7 @@ func (r *Renderer) funcs() template.FuncMap {
 		"severity":  severity,
 		"earliest":  earliest,
 		"duration":  duration,
-		"httpURL":   httpURL,
+		"httpURL":   HTTPURL,
 		"tgtime":    r.tgtime,
 		"tgago":     r.tgago,
 		"description": func(a alertmanager.Alert) string {
@@ -364,8 +372,8 @@ func duration(from, to time.Time) string {
 	}
 }
 
-// httpURL returns s if it is an absolute http(s) URL, else "" (SECURITY.md §5).
-func httpURL(s string) string {
+// HTTPURL returns s if it is an absolute http(s) URL, else "" (SECURITY.md §5).
+func HTTPURL(s string) string {
 	u, err := url.Parse(s)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ""
@@ -415,7 +423,9 @@ func sampleData(now time.Time) []Data {
 	firing := Data{Status: alertmanager.StatusFiring, Alerts: Alerts{a, b}, Added: Alerts{a},
 		GroupLabels: map[string]string{"alertname": "Sample"}, CommonLabels: map[string]string{"alertname": "Sample"},
 		CommonAnnotations: map[string]string{}, OpenedAt: now.Add(-time.Hour), Limits: steps[0]}
+	silenced := firing
+	silenced.Silence = &Silence{Until: now.Add(time.Hour), By: "Sample"}
 	resolved := firing
 	resolved.Status, resolved.Alerts = alertmanager.StatusResolved, Alerts{b}
-	return []Data{firing, resolved}
+	return []Data{firing, silenced, resolved}
 }

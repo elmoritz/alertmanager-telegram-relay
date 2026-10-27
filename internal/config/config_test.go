@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -138,5 +140,60 @@ func TestConfigNeverPrintsSecrets(t *testing.T) {
 				t.Errorf("output contains %q: %s", secret, out)
 			}
 		}
+	}
+}
+
+func TestAlertmanagerAndButtons(t *testing.T) {
+	m := valid()
+	c, err := load(env(m), noFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AlertmanagerURL != nil || len(c.SilenceDurations) != 2 || c.SilenceDurations[1] != 24*time.Hour || c.ShowSourceButton {
+		t.Errorf("defaults: %+v", c)
+	}
+
+	m["ALERTMANAGER_URL"] = "http://alertmanager:9093"
+	m["ALERTMANAGER_BEARER_TOKEN"] = "am-test-token"
+	m["SILENCE_DURATIONS"] = "30m, 4h, 30m"
+	m["GRAFANA_URL"] = "https://grafana.example.com"
+	if c, err = load(env(m), noFiles); err != nil {
+		t.Fatal(err)
+	}
+	if c.AlertmanagerURL.String() != "http://alertmanager:9093" || c.AlertmanagerToken != "am-test-token" || len(c.SilenceDurations) != 2 {
+		t.Errorf("got %+v", c)
+	}
+	var logged strings.Builder
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("c", "c", c)
+	if strings.Contains(logged.String()+c.String(), "am-test-token") {
+		t.Error("alertmanager token printed")
+	}
+}
+
+func TestAlertmanagerAndButtonsInvalid(t *testing.T) {
+	for name, set := range map[string]map[string]string{
+		"credentials in URL":   {"ALERTMANAGER_URL": "http://user:pass@alertmanager:9093"},
+		"not http":             {"ALERTMANAGER_URL": "ftp://alertmanager"},
+		"relative":             {"ALERTMANAGER_URL": "alertmanager:9093"},
+		"username only":        {"ALERTMANAGER_USERNAME": "relay"},
+		"basic and bearer":     {"ALERTMANAGER_USERNAME": "relay", "ALERTMANAGER_PASSWORD": "p", "ALERTMANAGER_BEARER_TOKEN": "t"},
+		"duration over 7 days": {"SILENCE_DURATIONS": "1h,169h"},
+		"zero duration":        {"SILENCE_DURATIONS": "0s"},
+		"too many durations":   {"SILENCE_DURATIONS": "1h,2h,3h,4h,5h"},
+		"empty durations":      {"SILENCE_DURATIONS": ","},
+		"grafana javascript":   {"GRAFANA_URL": "javascript:alert(1)"},
+		"source not bool":      {"SHOW_SOURCE_BUTTON": "sometimes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := valid()
+			maps.Copy(m, set)
+			_, err := load(env(m), noFiles)
+			if err == nil {
+				t.Fatal("want error")
+			}
+			if strings.Contains(err.Error(), "pass@") {
+				t.Errorf("error echoes credentials: %v", err)
+			}
+		})
 	}
 }

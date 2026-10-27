@@ -164,8 +164,9 @@ func (c *Client) redact(s string) string {
 
 // User is the subset of the Bot API User object the relay uses.
 type User struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	ID        int64  `json:"id"`
+	FirstName string `json:"first_name"`
+	Username  string `json:"username"`
 }
 
 // GetMe returns the bot's own user. Useful as a startup check of the token.
@@ -184,7 +185,25 @@ type Message struct {
 	ReplyTo int
 	// Silent sends without a notification sound.
 	Silent bool
+	// Keyboard, if not nil, is attached as an inline keyboard.
+	Keyboard *Keyboard
 }
+
+// Keyboard is an inline keyboard: rows of buttons.
+type Keyboard struct {
+	Rows [][]Button `json:"inline_keyboard"`
+}
+
+// Button is an inline keyboard button: either a callback button (Data) or a
+// link (URL).
+type Button struct {
+	Text string `json:"text"`
+	Data string `json:"callback_data,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+// noKeyboard removes a message's inline keyboard when sent with an edit.
+var noKeyboard = &Keyboard{Rows: [][]Button{}}
 
 type replyParameters struct {
 	MessageID                int  `json:"message_id"`
@@ -204,12 +223,14 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		LinkPreviewOptions  linkPreviewOptions `json:"link_preview_options"`
 		DisableNotification bool               `json:"disable_notification,omitempty"`
 		ReplyParameters     *replyParameters   `json:"reply_parameters,omitempty"`
+		ReplyMarkup         *Keyboard          `json:"reply_markup,omitempty"`
 	}{
 		ChatID:              m.ChatID,
 		Text:                m.Text,
 		ParseMode:           "HTML",
 		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
 		DisableNotification: m.Silent,
+		ReplyMarkup:         m.Keyboard,
 	}
 	if m.ReplyTo != 0 {
 		params.ReplyParameters = &replyParameters{MessageID: m.ReplyTo, AllowSendingWithoutReply: true}
@@ -223,21 +244,72 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	return res.MessageID, nil
 }
 
-// EditMessageText replaces the text of a message the bot sent. Editing to the
-// identical text is not an error.
-func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID int, text string) error {
+// EditMessageText replaces the text and keyboard of a message the bot sent; a
+// nil keyboard removes the existing one. Editing to the identical content is
+// not an error.
+func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *Keyboard) error {
+	if kb == nil {
+		kb = noKeyboard
+	}
 	params := struct {
 		ChatID             int64              `json:"chat_id"`
 		MessageID          int                `json:"message_id"`
 		Text               string             `json:"text"`
 		ParseMode          string             `json:"parse_mode"`
 		LinkPreviewOptions linkPreviewOptions `json:"link_preview_options"`
-	}{chatID, messageID, text, "HTML", linkPreviewOptions{IsDisabled: true}}
+		ReplyMarkup        *Keyboard          `json:"reply_markup"`
+	}{chatID, messageID, text, "HTML", linkPreviewOptions{IsDisabled: true}, kb}
 	err := c.call(ctx, "editMessageText", params, nil)
 	if hasDescription(err, "message is not modified") {
 		return nil
 	}
 	return err
+}
+
+// Update is an incoming update. The relay asks only for callback queries.
+type Update struct {
+	UpdateID      int64          `json:"update_id"`
+	CallbackQuery *CallbackQuery `json:"callback_query"`
+}
+
+// CallbackQuery is a press of a callback button. Data is whatever the client
+// sent: clients can send any data, not only that of an existing button.
+type CallbackQuery struct {
+	ID      string `json:"id"`
+	From    User   `json:"from"`
+	Message *struct {
+		MessageID int `json:"message_id"`
+		Chat      struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+	} `json:"message"`
+	Data string `json:"data"`
+}
+
+// GetUpdates long-polls for callback queries after offset. It never uses or
+// sets a webhook: the relay needs no inbound connection (SECURITY.md §2).
+func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout time.Duration) ([]Update, error) {
+	params := struct {
+		Offset         int64    `json:"offset,omitempty"`
+		Timeout        int      `json:"timeout"`
+		AllowedUpdates []string `json:"allowed_updates"`
+	}{offset, int(timeout.Seconds()), []string{"callback_query"}}
+	var updates []Update
+	err := c.call(ctx, "getUpdates", params, &updates)
+	return updates, err
+}
+
+// AnswerCallbackQuery stops the client's progress indicator, showing text as
+// a short notification if it is not empty.
+func (c *Client) AnswerCallbackQuery(ctx context.Context, id, text string) error {
+	if r := []rune(text); len(r) > 200 {
+		text = string(r[:200])
+	}
+	params := struct {
+		ID   string `json:"callback_query_id"`
+		Text string `json:"text,omitempty"`
+	}{id, text}
+	return c.call(ctx, "answerCallbackQuery", params, nil)
 }
 
 // IsRetryable reports whether a failed call may succeed when repeated:
@@ -273,6 +345,15 @@ func IsFormatError(err error) bool {
 	return hasDescription(err, "can't parse entities") ||
 		hasDescription(err, "is too long") ||
 		hasDescription(err, "text must be non-empty")
+}
+
+// IsButtonError reports whether Telegram rejected a keyboard button, usually a
+// URL it does not accept (e.g. an internal host name without a dot).
+func IsButtonError(err error) bool {
+	return hasDescription(err, "button url") ||
+		hasDescription(err, "BUTTON_URL_INVALID") ||
+		hasDescription(err, "wrong http url") ||
+		hasDescription(err, "BUTTON_DATA_INVALID")
 }
 
 func hasDescription(err error, substr string) bool {

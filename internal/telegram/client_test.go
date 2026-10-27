@@ -59,7 +59,7 @@ func TestTimeoutDoesNotLeakToken(t *testing.T) {
 
 	c := New(srv.URL, testToken)
 	c.http.Timeout = 50 * time.Millisecond
-	err := c.EditMessageText(context.Background(), 1, 2, "x")
+	err := c.EditMessageText(context.Background(), 1, 2, "x", nil)
 	assertNoToken(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -163,16 +163,16 @@ func TestEditMessageText(t *testing.T) {
 	c := New(srv.URL, testToken)
 	ctx := context.Background()
 
-	if err := c.EditMessageText(ctx, 1, 42, "a"); err != nil {
+	if err := c.EditMessageText(ctx, 1, 42, "a", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.EditMessageText(ctx, 1, 42, "a"); err != nil {
+	if err := c.EditMessageText(ctx, 1, 42, "a", nil); err != nil {
 		t.Errorf("not modified should be success: %v", err)
 	}
-	if err := c.EditMessageText(ctx, 1, 42, "a"); !IsMessageGone(err) || IsRetryable(err) {
+	if err := c.EditMessageText(ctx, 1, 42, "a", nil); !IsMessageGone(err) || IsRetryable(err) {
 		t.Errorf("want message gone, got %v", err)
 	}
-	if err := c.EditMessageText(ctx, 1, 42, "a"); !IsFormatError(err) {
+	if err := c.EditMessageText(ctx, 1, 42, "a", nil); !IsFormatError(err) {
 		t.Errorf("want format error, got %v", err)
 	}
 	if f.requests[0]["message_id"] != float64(42) || f.requests[0]["text"] != "a" {
@@ -209,5 +209,89 @@ func TestNonJSONResponse(t *testing.T) {
 	assertNoToken(t, err)
 	if !IsRetryable(err) {
 		t.Errorf("502 page should be retryable: %v", err)
+	}
+}
+
+func TestKeyboards(t *testing.T) {
+	f := &fake{t: t, responses: []string{
+		`{"ok":true,"result":{"message_id":42}}`,
+		`{"ok":true,"result":true}`,
+		`{"ok":true,"result":true}`,
+		`{"ok":false,"error_code":400,"description":"Bad Request: inline keyboard button URL 'http://grafana:3000' is invalid: Wrong HTTP URL"}`,
+	}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	ctx := context.Background()
+	kb := &Keyboard{Rows: [][]Button{{{Text: "🔕 1h", Data: "abc"}}, {{Text: "📖 Runbook", URL: "https://example.com/rb"}}}}
+
+	if _, err := c.SendMessage(ctx, Message{ChatID: 1, Text: "a", Keyboard: kb}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EditMessageText(ctx, 1, 42, "b", kb); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EditMessageText(ctx, 1, 42, "c", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EditMessageText(ctx, 1, 42, "d", kb); !IsButtonError(err) || IsFormatError(err) {
+		t.Errorf("want button error, got %v", err)
+	}
+
+	rows := func(i int) []any {
+		rm, _ := f.requests[i]["reply_markup"].(map[string]any)
+		r, ok := rm["inline_keyboard"].([]any)
+		if !ok {
+			t.Fatalf("request %d: no inline_keyboard: %v", i, f.requests[i])
+		}
+		return r
+	}
+	if len(rows(0)) != 2 || len(rows(1)) != 2 {
+		t.Errorf("keyboard not sent: %v", f.requests[0])
+	}
+	if len(rows(2)) != 0 {
+		t.Errorf("nil keyboard must remove the keyboard explicitly: %v", f.requests[2])
+	}
+	btn := rows(0)[0].([]any)[0].(map[string]any)
+	if btn["callback_data"] != "abc" || btn["url"] != nil {
+		t.Errorf("callback button = %v", btn)
+	}
+}
+
+func TestPolling(t *testing.T) {
+	f := &fake{t: t, responses: []string{
+		`{"ok":true,"result":[{"update_id":7,"callback_query":{"id":"q1","from":{"id":11111111,"first_name":"Alice"},"message":{"message_id":42,"chat":{"id":-1001234567890},"date":1},"data":"abc"}},{"update_id":8,"message":{"text":"hi"}}]}`,
+		`{"ok":true,"result":true}`,
+	}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+
+	ups, err := c.GetUpdates(context.Background(), 7, 25*time.Second)
+	if err != nil || len(ups) != 2 {
+		t.Fatalf("%v %v", ups, err)
+	}
+	cq := ups[0].CallbackQuery
+	if cq == nil || cq.ID != "q1" || cq.From.ID != 11111111 || cq.From.FirstName != "Alice" || cq.Message.MessageID != 42 || cq.Message.Chat.ID != -1001234567890 || cq.Data != "abc" {
+		t.Errorf("callback = %+v", cq)
+	}
+	if ups[1].CallbackQuery != nil {
+		t.Error("message update parsed as callback")
+	}
+	req := f.requests[0]
+	if req["offset"] != float64(7) || req["timeout"] != float64(25) || fmt.Sprint(req["allowed_updates"]) != "[callback_query]" {
+		t.Errorf("getUpdates request = %v", req)
+	}
+
+	if err := c.AnswerCallbackQuery(context.Background(), "q1", strings.Repeat("x", 300)); err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := f.requests[1]["text"].(string); len(text) != 200 || f.requests[1]["callback_query_id"] != "q1" {
+		t.Errorf("answer = %v", f.requests[1])
+	}
+	for _, p := range f.paths {
+		if strings.Contains(strings.ToLower(p), "webhook") {
+			t.Errorf("webhook method called: %s", p)
+		}
 	}
 }

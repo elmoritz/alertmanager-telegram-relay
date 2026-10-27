@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 implemented** (see §13); later milestones are design. This
+Status: **v0.1 and v0.2 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -168,13 +168,48 @@ Inline keyboard under every firing message:
 | 📖 Runbook | URL | From the `runbook_url` annotation. Hidden if absent. |
 | 🔗 Source | URL | `generatorURL` of the first alert, if `SHOW_SOURCE_BUTTON=true` (default off: it is usually an internal Prometheus URL). |
 
-- Durations are configurable (`SILENCE_DURATIONS=1h,24h`), max 7 days.
-- Every allowed callback gets an `answerCallbackQuery` with a short toast
-  ("Silenced for 1h"). Unauthorised presses get an empty answer, with no text
-  that says why (SECURITY.md §2).
-- If Alertmanager is unreachable, the toast says so and nothing changes.
+- Layout: callback buttons in the first row, link buttons in the second.
+  Resolved messages have no keyboard.
+- Silence buttons are offered only when `ALERTMANAGER_URL` is set and the
+  group has group labels. The silence's matchers are all of the group labels,
+  exact equality, in sorted order; `createdBy` is `telegram:<user id>` and the
+  comment "Silenced from Telegram via alertmanager-telegram-relay".
+- Durations are configurable (`SILENCE_DURATIONS=1h,24h`): 1 to 4 of them,
+  each between 1 minute and 7 days.
+- Updates arrive by long polling (`getUpdates`, 25 s, only `callback_query`).
+  The relay never sets a webhook. A `409` (another consumer of the same token,
+  or a webhook set on the bot) is logged as an error and retried with backoff.
+- **Every press is checked, in this order** (SECURITY.md §2 and §3):
+  1. the message's chat is in `TELEGRAM_CHAT_IDS` **and** the user is in
+     `TELEGRAM_ADMIN_USER_IDS`; otherwise an empty answer, counted in
+     `relay_telegram_updates_rejected_total`, nothing else;
+  2. `callback_data` is the ID of a stored, unexpired action (clients can send
+     any data, so nothing else in it is ever used);
+  3. the action belongs to an open incident, the press came from that
+     incident's chat and current message, and the action is on that message's
+     current keyboard.
+  Anything failing 2 or 3 gets the toast "This button has expired."
+- Action IDs are 128 random bits. Actions expire after 7 days; while an
+  incident stays open, its buttons are re-issued with new IDs on the first
+  notification after half of that. Unsilence is single-use: once pressed, its
+  action and the replaced silence buttons stop working.
+- Toasts for allowed users: "Silenced for 1h.", "Silence removed.",
+  "Alertmanager is unreachable. Nothing changed.", "This button has expired."
+  The answer comes before the message is updated.
+- If Alertmanager is unreachable, the toast says so and nothing changes (the
+  buttons keep working). Unsilencing a silence Alertmanager no longer knows
+  counts as success.
+- A silence that runs out by itself is noticed at the next notification for
+  the incident, which restores the silence buttons.
 - A silence created outside Telegram is not tracked; the message only reflects
   silences made through its own buttons.
+- Link buttons use only `http(s)` URLs. `dashboard_url` and `runbook_url` are
+  taken from the first firing alert that has them, else the common
+  annotations. Telegram rejects some URLs (e.g. host names without a dot); the
+  message is then sent without the link row, and if even that fails, as the
+  minimal message.
+- Notifications and button presses for the same group are processed one at a
+  time, so the message is never edited from two sides at once.
 
 ## 6. Commands (later, optional)
 
@@ -232,8 +267,8 @@ names the variable but never echoes its value.
 | `TELEGRAM_ADMIN_USER_IDS` | v0.1 | yes | | Users whose button presses are acted on (required from v0.1, used from v0.2) |
 | `WEBHOOK_SECRET` | v0.1 | yes | | Bearer secret Alertmanager sends |
 | `LISTEN_ADDR` | v0.1 | | `127.0.0.1:9095` | Webhook, `/healthz`, `/metrics` |
-| `ALERTMANAGER_URL` | v0.2 | for buttons | | e.g. `http://alertmanager:9093` |
-| `ALERTMANAGER_USERNAME` / `_PASSWORD` / `_BEARER_TOKEN` | v0.2 | | | API auth, if any |
+| `ALERTMANAGER_URL` | v0.2 | for silence buttons | | e.g. `http://alertmanager:9093`, may include a route prefix. No credentials, query or fragment |
+| `ALERTMANAGER_USERNAME` + `_PASSWORD`, or `_BEARER_TOKEN` | v0.2 | | | API auth, if any; basic or bearer, not both |
 | `STATE_DIR` | v0.1 | | `/data` | bbolt file location (`relay.db`) |
 | `TEMPLATE_FILE` | v0.1 | | built-in | Custom message template |
 | `TIMEZONE` | v0.1 | | `UTC` | Fallback text inside `<tg-time>` |
@@ -242,13 +277,14 @@ names the variable but never echoes its value.
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
+| `SHOW_SOURCE_BUTTON` | v0.2 | | `false` | 🔗 Source button with the first alert's `generatorURL` |
 | `INCIDENT_TTL` | v0.1 | | `720h` | Forget unresolved incidents this long after their last notification |
 | `LOG_LEVEL` | v0.1 | | `info` | `debug`, `info`, `warn`, `error`; `debug` logs IDs, never secrets |
 
 ## 11. Observability
 
-- `GET /healthz`: 200 when the store is open and (from v0.2) the last
-  `getUpdates` poll succeeded within 2 minutes. `relay healthcheck` calls it
+- `GET /healthz`: 200 when the store is open and the last `getUpdates` poll
+  succeeded within 2 minutes (counted from startup until the first poll). `relay healthcheck` calls it
   and exits 0 or 1, for container health checks (the image has no shell or
   curl).
 - `GET /metrics` (Prometheus). No alert names, label values or IDs as metric
@@ -264,11 +300,14 @@ names the variable but never echoes its value.
   | `relay_template_errors_total` | |
   | `relay_queue_length` | |
   | `relay_open_incidents` | |
+  | `relay_telegram_updates_rejected_total` | |
+  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`), `result` (`ok`, `error`) |
 
-  From v0.2: rejected updates (`relay_telegram_updates_rejected_total`),
-  silences created/expired.
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short
-  hash of the group key, since group keys contain label values.
+  hash of the group key, since group keys contain label values. Creating and
+  expiring a silence is logged at info with the silence ID and the user ID
+  (SECURITY.md §3); otherwise IDs appear only at debug level.
 
 ## 12. Delivery
 
@@ -291,8 +330,8 @@ names the variable but never echoes its value.
    allowlists, default template with length control, incidents in bbolt,
    send/edit/reply lifecycle (§4), healthz/metrics, Dockerfile, CI, release
    workflow, examples.
-2. **v0.2, buttons:** long polling, callback handling, silence/unsilence,
-   Grafana/runbook URL buttons.
+2. **v0.2, buttons (done):** long polling, callback handling,
+   silence/unsilence, Grafana/runbook URL buttons.
 3. **v0.3, routing:** quiet severities, multiple chats and forum topics.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
 

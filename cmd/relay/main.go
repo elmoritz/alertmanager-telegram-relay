@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -35,6 +36,8 @@ var version = "dev"
 const (
 	retryFor      = 10 * time.Minute // SPEC §9
 	shutdownGrace = 10 * time.Second
+	actionTTL     = 7 * 24 * time.Hour // SECURITY.md §3
+	pollStale     = 2 * time.Minute    // SPEC §11
 )
 
 func main() {
@@ -86,33 +89,67 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	runCtx, stopWorkers := context.WithCancel(context.Background())
 	defer stopWorkers()
 
-	dispatcher := &incident.Dispatcher{
-		Store: st,
-		Log:   log,
-		Route: func(*alertmanager.Message) int64 { return cfg.DefaultChatID() },
-		Processor: &incident.Processor{
-			Store:        st,
-			Telegram:     tg,
-			Render:       renderer,
-			Metrics:      m,
-			Log:          log,
-			Reminders:    cfg.Reminders,
-			ResolveReply: cfg.ResolveReply,
-			RetryFor:     retryFor,
-			Now:          time.Now,
-			Sleep:        incident.SleepContext,
+	processor := &incident.Processor{
+		Store:    st,
+		Telegram: tg,
+		Render:   renderer,
+		Metrics:  m,
+		Log:      log,
+		Buttons: incident.ButtonConfig{
+			Silences:   cfg.AlertmanagerURL != nil,
+			Durations:  cfg.SilenceDurations,
+			ActionTTL:  actionTTL,
+			GrafanaURL: cfg.GrafanaURL,
+			ShowSource: cfg.ShowSourceButton,
 		},
+		Reminders:    cfg.Reminders,
+		ResolveReply: cfg.ResolveReply,
+		RetryFor:     retryFor,
+		Now:          time.Now,
+		Sleep:        incident.SleepContext,
+	}
+	buttons := &incident.Buttons{
+		Processor:    processor,
+		Telegram:     tg,
+		ChatIDs:      cfg.ChatIDs,
+		AdminUserIDs: cfg.AdminUserIDs,
+		Log:          log,
+	}
+	if cfg.AlertmanagerURL != nil {
+		am := alertmanager.NewClient(cfg.AlertmanagerURL, cfg.AlertmanagerUsername, cfg.AlertmanagerPassword, cfg.AlertmanagerToken)
+		am.OnCall = func(op, result string) { m.AlertmanagerRequests.WithLabelValues(op, result).Inc() }
+		buttons.Alertmanager = am
+	}
+	dispatcher := &incident.Dispatcher{
+		Store:     st,
+		Log:       log,
+		Route:     func(*alertmanager.Message) int64 { return cfg.DefaultChatID() },
+		Processor: processor,
 	}
 	if err := dispatcher.Start(runCtx); err != nil {
 		return err
 	}
-	go expireIncidents(runCtx, st, cfg.IncidentTTL, log)
+	go expire(runCtx, st, cfg.IncidentTTL, log)
+
+	// Button presses arrive by long polling: no inbound connection needed.
+	var lastPoll atomic.Int64
+	lastPoll.Store(time.Now().Unix()) // grace period for the first poll
+	pollDone := make(chan struct{})
+	go func() {
+		defer close(pollDone)
+		tg.Poll(runCtx, log, buttons.HandleUpdate, func() { lastPoll.Store(time.Now().Unix()) })
+	}()
+	defer func() { stopWorkers(); <-pollDone }()
 
 	mux := http.NewServeMux()
 	mux.Handle("/webhook", webhook.New(cfg.WebhookSecret, dispatcher, m, log))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Ping(); err != nil {
 			http.Error(w, "store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if time.Since(time.Unix(lastPoll.Load(), 0)) > pollStale {
+			http.Error(w, "telegram polling failing", http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte("ok\n"))
@@ -182,7 +219,9 @@ func checkBot(tg *telegram.Client, log *slog.Logger) error {
 	return nil
 }
 
-func expireIncidents(ctx context.Context, st *store.Store, ttl time.Duration, log *slog.Logger) {
+// expire forgets incidents after INCIDENT_TTL and button actions once they
+// expire, hourly.
+func expire(ctx context.Context, st *store.Store, ttl time.Duration, log *slog.Logger) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
@@ -190,6 +229,9 @@ func expireIncidents(ctx context.Context, st *store.Store, ttl time.Duration, lo
 			log.Error("expiring incidents", "err", err)
 		} else if n > 0 {
 			log.Info("expired incidents", "count", n)
+		}
+		if _, err := st.ExpireActions(time.Now()); err != nil {
+			log.Error("expiring button actions", "err", err)
 		}
 		select {
 		case <-ctx.Done():

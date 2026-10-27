@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +42,22 @@ type Config struct {
 	ResolveReply bool
 	IncidentTTL  time.Duration
 	LogLevel     slog.Level
+
+	// AlertmanagerURL is nil when unset; silence buttons are then not offered.
+	AlertmanagerURL      *url.URL
+	AlertmanagerUsername string
+	AlertmanagerPassword string
+	AlertmanagerToken    string
+	SilenceDurations     []time.Duration
+
+	GrafanaURL       string
+	ShowSourceButton bool
 }
+
+// MaxSilence is the longest silence a button may create (SECURITY.md §3).
+const MaxSilence = 7 * 24 * time.Hour
+
+const maxSilenceButtons = 4
 
 // Load reads the configuration from the process environment.
 func Load() (*Config, error) {
@@ -124,6 +141,36 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		fail(fmt.Errorf("LOG_LEVEL: %w", err))
 	}
 
+	if v := str("ALERTMANAGER_URL", ""); v != "" {
+		if c.AlertmanagerURL, err = httpBaseURL(v); err != nil {
+			fail(fmt.Errorf("ALERTMANAGER_URL: %w", err))
+		}
+	}
+	c.AlertmanagerUsername = secret("ALERTMANAGER_USERNAME")
+	c.AlertmanagerPassword = secret("ALERTMANAGER_PASSWORD")
+	c.AlertmanagerToken = secret("ALERTMANAGER_BEARER_TOKEN")
+	switch {
+	case (c.AlertmanagerUsername == "") != (c.AlertmanagerPassword == ""):
+		fail(errors.New("ALERTMANAGER_USERNAME and ALERTMANAGER_PASSWORD must be set together"))
+	case c.AlertmanagerUsername != "" && c.AlertmanagerToken != "":
+		fail(errors.New("ALERTMANAGER_BEARER_TOKEN and ALERTMANAGER_USERNAME are both set; use one"))
+	}
+
+	if c.SilenceDurations, err = durations(str("SILENCE_DURATIONS", "1h,24h")); err != nil {
+		fail(fmt.Errorf("SILENCE_DURATIONS: %w", err))
+	}
+
+	if v := str("GRAFANA_URL", ""); v != "" {
+		if u, err := httpBaseURL(v); err != nil {
+			fail(fmt.Errorf("GRAFANA_URL: %w", err))
+		} else {
+			c.GrafanaURL = u.String()
+		}
+	}
+	if c.ShowSourceButton, err = strconv.ParseBool(str("SHOW_SOURCE_BUTTON", "false")); err != nil {
+		fail(fmt.Errorf("SHOW_SOURCE_BUTTON: %w", err))
+	}
+
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -156,14 +203,63 @@ func idList(s string) ([]int64, error) {
 	return ids, nil
 }
 
+// httpBaseURL accepts an absolute http(s) URL without credentials, query or
+// fragment. Credentials belong in their own variables, where they are
+// handled as secrets.
+func httpBaseURL(s string) (*url.URL, error) {
+	u, err := url.Parse(s)
+	switch {
+	case err != nil:
+		return nil, errors.New("not a URL")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return nil, errors.New("must start with http:// or https://")
+	case u.Host == "":
+		return nil, errors.New("missing host")
+	case u.User != nil:
+		return nil, errors.New("must not contain credentials")
+	case u.RawQuery != "" || u.Fragment != "":
+		return nil, errors.New("must not contain a query or fragment")
+	}
+	return u, nil
+}
+
+// durations parses the silence button list: positive, at most MaxSilence
+// each, no more than fit in one keyboard row.
+func durations(s string) ([]time.Duration, error) {
+	var ds []time.Duration
+	for f := range strings.SplitSeq(s, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		d, err := time.ParseDuration(f)
+		if err != nil {
+			return nil, err
+		}
+		if d < time.Minute || d > MaxSilence {
+			return nil, fmt.Errorf("%s: must be between 1m and %s", f, MaxSilence)
+		}
+		if !slices.Contains(ds, d) {
+			ds = append(ds, d)
+		}
+	}
+	if len(ds) == 0 {
+		return nil, errors.New("at least one duration required")
+	}
+	if len(ds) > maxSilenceButtons {
+		return nil, fmt.Errorf("at most %d durations", maxSilenceButtons)
+	}
+	return ds, nil
+}
+
 // DefaultChatID is the chat notifications go to until routing exists (v0.3).
 func (c *Config) DefaultChatID() int64 { return c.ChatIDs[0] }
 
 // String returns a redacted description safe to log. Value receivers, so
 // both Config and *Config are covered.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s}",
-		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret))
+	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s AlertmanagerAuth:%s}",
+		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret), c.alertmanagerAuth())
 }
 
 // GoString keeps %#v from printing the fields.
@@ -180,7 +276,30 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("resolve_reply", c.ResolveReply),
 		slog.String("incident_ttl", c.IncidentTTL.String()),
 		slog.Bool("custom_template", c.TemplateFile != ""),
+		slog.Bool("alertmanager", c.AlertmanagerURL != nil),
+		slog.String("alertmanager_auth", c.alertmanagerAuth()),
+		slog.Any("silence_durations", durationStrings(c.SilenceDurations)),
+		slog.Bool("grafana_url", c.GrafanaURL != ""),
+		slog.Bool("show_source_button", c.ShowSourceButton),
 	)
+}
+
+func (c Config) alertmanagerAuth() string {
+	switch {
+	case c.AlertmanagerToken != "":
+		return "bearer"
+	case c.AlertmanagerUsername != "":
+		return "basic"
+	}
+	return "none"
+}
+
+func durationStrings(ds []time.Duration) []string {
+	var out []string
+	for _, d := range ds {
+		out = append(out, d.String())
+	}
+	return out
 }
 
 func redact(s string) string {

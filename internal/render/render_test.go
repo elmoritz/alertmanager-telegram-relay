@@ -69,6 +69,9 @@ func TestGolden(t *testing.T) {
 			d := NewData(fixture(t, name))
 			d.OpenedAt = time.Date(2026, 3, 2, 4, 57, 0, 0, time.UTC)
 			d.Added = d.Alerts.Firing()
+			if name == "firing_single" {
+				d.Silence = &Silence{Until: time.Date(2026, 3, 2, 8, 19, 0, 0, time.UTC), By: "Alice <b>"}
+			}
 			msg, err := r.Message(d)
 			if err != nil {
 				t.Fatal(err)
@@ -227,7 +230,7 @@ func TestHelpers(t *testing.T) {
 		"//example.com/x":                 "",
 		"data:text/html,x":                "",
 	} {
-		if got := httpURL(in); got != want {
+		if got := HTTPURL(in); got != want {
 			t.Errorf("httpURL(%q) = %q", in, got)
 		}
 	}

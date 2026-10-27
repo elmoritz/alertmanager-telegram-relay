@@ -32,6 +32,7 @@ type call struct {
 	MessageID           int // editMessageText target
 	ReplyTo             int
 	DisableNotification bool
+	Keyboard            *telegram.Keyboard
 }
 
 func (c call) String() string {
@@ -61,16 +62,17 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var p struct {
-		Text                string `json:"text"`
-		MessageID           int    `json:"message_id"`
-		DisableNotification bool   `json:"disable_notification"`
+		Text                string             `json:"text"`
+		MessageID           int                `json:"message_id"`
+		DisableNotification bool               `json:"disable_notification"`
+		ReplyMarkup         *telegram.Keyboard `json:"reply_markup"`
 		ReplyParameters     *struct {
 			MessageID int `json:"message_id"`
 		} `json:"reply_parameters"`
 	}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &p)
-	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification}
+	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup}
 	if p.ReplyParameters != nil {
 		c.ReplyTo = p.ReplyParameters.MessageID
 	}
