@@ -135,6 +135,8 @@ Tick each item, and note anything that differs:
 - [ ] **Not an admin:** ask a second Telegram account to join the group (or restart the relay with another `TELEGRAM_ADMIN_USER_IDS`) and press a button. Nothing happens apart from the spinner ending, no toast text; `relay_telegram_updates_rejected_total` in `curl -s 127.0.0.1:9095/metrics` goes up.
 - [ ] **Restart mid-incident:** fire an alert, stop the relay (Ctrl-C), start it again, press a button on the existing message, then resolve. Everything still works on the same message.
 - [ ] **Long content:** fire an alert whose description is a few thousand characters (edit the description in `fire`). The message arrives shortened, not missing.
+- [ ] **Routes and topics** (needs a forum group with two topics, `RELAY_LIVE_TOPIC_<NAME>` in the environment): with `ROUTES` sending `team="media"` and `team="infra"` to the topics, alerts land in their topic, the rest in General; an "added" reply lands in the incident's topic; a route to a non-existent topic lands in General with a warning in the log.
+- [ ] **Quiet:** with `QUIET_SEVERITIES=info`, an info alert arrives without sound; a critical one always rings.
 - [ ] **Resolved while silenced:** silence an alert from Telegram, then `resolve` it. Alertmanager sends nothing, but within about 6 minutes the relay edits the message to resolved (log: "silenced alerts resolved without a notification").
 - [ ] **Silenced status:** while silenced, a greyed-out "🔕 Silenced until … by …" sits above a highlighted ↩️ Unsilence; tapping the grey one does nothing.
 - [ ] **Resolved status:** a resolved message keeps one greyed-out "✅ Resolved after …" button; tapping it does nothing.

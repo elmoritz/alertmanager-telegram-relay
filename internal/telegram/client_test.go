@@ -393,3 +393,24 @@ func TestPolling(t *testing.T) {
 		}
 	}
 }
+
+func TestThreadGone(t *testing.T) {
+	err := &Error{Method: "sendMessage", Code: 400, Description: "Bad Request: message thread not found"}
+	if !IsThreadGone(err) || IsFormatError(err) || IsButtonError(err) || IsMessageGone(err) || IsRetryable(err) {
+		t.Errorf("classification of %v", err)
+	}
+}
+
+// Shape of a real answer, IDs replaced.
+func TestChatMigrated(t *testing.T) {
+	f := &fake{t: t, responses: []string{`{"ok":false,"error_code":400,"description":"Bad Request: group chat was upgraded to a supergroup chat","parameters":{"migrate_to_chat_id":-1001234567890}}`}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	_, err := New(srv.URL, testToken).SendMessage(context.Background(), Message{ChatID: -123456789, Text: "a"})
+	if to := MigratedTo(err); to != -1001234567890 || IsRetryable(err) || IsFormatError(err) || IsButtonError(err) {
+		t.Errorf("MigratedTo = %d for %v", to, err)
+	}
+	if MigratedTo(&Error{Code: 400, Description: "x"}) != 0 {
+		t.Error("MigratedTo of another error")
+	}
+}

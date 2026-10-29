@@ -106,7 +106,7 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			j.forget(inc.ButtonIDs())
 			return j.dropped(err)
 		}
-		inc.MessageID, inc.TextHash = id, v.hash()
+		inc.MessageID, inc.ThreadID, inc.TextHash = id, j.threadID, v.hash()
 		if err := p.Store.PutIncident(inc); err != nil {
 			// The message is out; without the record the next notification
 			// opens a second one. Not worth re-sending this one for.
@@ -262,16 +262,26 @@ type job struct {
 }
 
 // send sends the first variant of v that Telegram accepts and returns the
-// new message's ID.
+// new message's ID. If the forum topic is gone, it sends to the chat without
+// a topic: a notification in the wrong place beats none; j.threadID then
+// says where it went.
 func (j *job) send(v view, replyTo int, silent bool) (int, error) {
 	var id int
-	err := j.withFallback(v, func(vr variant) error {
-		return j.retry(func(ctx context.Context) error {
-			var err error
-			id, err = j.p.Telegram.SendMessage(ctx, telegram.Message{ChatID: j.chatID, ThreadID: j.threadID, Text: vr.text, ReplyTo: replyTo, Silent: silent, Keyboard: vr.kb})
-			return err
+	try := func() error {
+		return j.withFallback(v, func(vr variant) error {
+			return j.retry(func(ctx context.Context) error {
+				var err error
+				id, err = j.p.Telegram.SendMessage(ctx, telegram.Message{ChatID: j.chatID, ThreadID: j.threadID, Text: vr.text, ReplyTo: replyTo, Silent: silent, Keyboard: vr.kb})
+				return err
+			})
 		})
-	})
+	}
+	err := try()
+	if telegram.IsThreadGone(err) && j.threadID != 0 {
+		j.log.Warn("forum topic not found, sending to the chat without a topic")
+		j.threadID = 0
+		err = try()
+	}
 	return id, err
 }
 
@@ -292,7 +302,7 @@ func (j *job) update(inc *store.Incident, v view, silent bool) error {
 		j.log.Warn("message can no longer be edited, sending a new one")
 		var id int
 		if id, err = j.send(v, 0, silent); err == nil {
-			inc.MessageID = id
+			inc.MessageID, inc.ThreadID = id, j.threadID
 		}
 	}
 	if err == nil {
@@ -359,6 +369,12 @@ func (j *job) dropped(err error) error {
 		return j.ctx.Err() // shutting down: keep it queued for the next start
 	}
 	j.p.Metrics.DeliveriesDropped.Inc()
+	if to := telegram.MigratedTo(err); to != 0 {
+		// Chat IDs only at debug level (SECURITY.md §1).
+		j.log.Error("notification dropped: the chat was upgraded to a supergroup (e.g. topics were turned on) and has a new ID; put it into TELEGRAM_CHAT_IDS and ROUTES", "err", err)
+		j.log.Debug("upgraded chat", "chat_id", j.chatID, "new_chat_id", to)
+		return nil
+	}
 	j.log.Error("notification dropped", "err", err)
 	return nil
 }

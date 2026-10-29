@@ -96,3 +96,31 @@ func TestQuietHours(t *testing.T) {
 	m.Alerts[0].Labels["severity"] = "critical"
 	expectCalls(t, e.handle(m), "sendMessage") // critical always rings
 }
+
+// A deleted topic (or a wrong ID in ROUTES) must not lose the notification:
+// it goes to the chat without a topic, and the incident stays there.
+func TestMissingTopicFallsBackToChat(t *testing.T) {
+	e := newEnv(t)
+	rules, _ := route.Parse(`team="media" => -1001234567891/42`, []int64{chat, mediaChat})
+	e.proc.Router.Rules = rules
+	e.tg.fail = func(c call, _ int) string {
+		if c.ThreadID == 42 {
+			return `{"ok":false,"error_code":400,"description":"Bad Request: message thread not found"}`
+		}
+		return ""
+	}
+	calls := e.deliver(mediaMsg("a"))
+	expectCalls(t, calls, "sendMessage", "sendMessage")
+	if c := calls[1]; c.ChatID != mediaChat || c.ThreadID != 0 {
+		t.Fatalf("fallback sent to %d/%d", c.ChatID, c.ThreadID)
+	}
+	inc, _ := e.store.Incident(mediaMsg().GroupKey)
+	if inc == nil || inc.ThreadID != 0 || inc.ChatID != mediaChat {
+		t.Fatalf("incident = %+v", inc)
+	}
+	calls = e.deliver(mediaMsg("a", "b"))
+	expectCalls(t, calls, "editMessageText(#1)", "sendMessage(reply #1)")
+	if calls[1].ThreadID != 0 {
+		t.Errorf("reply into the missing topic again")
+	}
+}

@@ -265,6 +265,18 @@ Only for allowed users in allowed chats; anything else ignored silently.
 - **An incident stays where it started.** Later notifications of the group,
   replies and the fallback after a lost message go to the incident's chat and
   topic, even if the group's common labels change.
+- **A topic that does not exist** (deleted, or a wrong ID in `ROUTES`):
+  Telegram answers "message thread not found"; the message is sent to the
+  same chat without a topic, logged as a warning, and the incident stays
+  there. A notification in the wrong place beats none.
+- **A group upgraded to a supergroup** (turning on topics does this) gets a
+  new chat ID; Telegram rejects sends to the old one and names the new one.
+  The relay does not follow it, since chats are an explicit allowlist
+  (SECURITY.md §2): the notification is dropped (counted in
+  `relay_deliveries_dropped_total`) with an error saying to put the new ID
+  into `TELEGRAM_CHAT_IDS` and `ROUTES`; the new ID itself is logged only at
+  debug level. Note that `getChat` on the old ID may still describe the old
+  group.
 - **Quiet severities:** `QUIET_SEVERITIES=warning,info` sends those with
   `disable_notification: true`: the new message, the "added" reply and
   reminders. Critical always rings; `critical` in the list is a startup
