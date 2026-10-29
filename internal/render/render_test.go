@@ -197,6 +197,21 @@ func TestShrinksBeforeFallingBack(t *testing.T) {
 	}
 }
 
+// An alert can start a little in the future when the Prometheus host's clock
+// runs ahead of the relay's; there is no "ago" then, and no empty "()".
+func TestStartInTheFuture(t *testing.T) {
+	a := bigAlert(0, "")
+	a.Annotations = map[string]string{"summary": "s"}
+	a.StartsAt = testNow.Add(5 * time.Second)
+	msg, err := renderer(t, "").Message(NewData(&alertmanager.Message{Status: alertmanager.StatusFiring, Alerts: []alertmanager.Alert{a}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg, "since <tg-time") || strings.Contains(msg, "()") {
+		t.Errorf("unexpected message:\n%s", msg)
+	}
+}
+
 func TestLen(t *testing.T) {
 	for s, want := range map[string]int{
 		"<b>ab</b>":    2,

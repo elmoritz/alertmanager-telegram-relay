@@ -108,13 +108,15 @@ mkdir -p "$STATE_DIR" && go run ./cmd/relay
 Fire and resolve alerts by posting them to Alertmanager:
 
 ```bash
+# Without startsAt, Alertmanager takes endsAt as the start time.
 fire() {  # fire <alertname> <instance> [device]; ENDS overrides endsAt
   local ends=${ENDS:-$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)}
+  local starts=$(date -u -v-5M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ)
   curl -s -XPOST -H 'Content-Type: application/json' http://127.0.0.1:9093/api/v2/alerts -d "[{
     \"labels\": {\"alertname\": \"$1\", \"instance\": \"$2\", \"device\": \"${3:-sda}\", \"severity\": \"critical\"},
     \"annotations\": {\"summary\": \"$2 is down\", \"description\": \"Test alert from the live checklist.\",
                     \"runbook_url\": \"https://example.com/runbooks/$1\"},
-    \"endsAt\": \"$ends\"}]"
+    \"startsAt\": \"$starts\", \"endsAt\": \"$ends\"}]"
 }
 resolve() { ENDS=$(date -u +%Y-%m-%dT%H:%M:%SZ) fire "$@"; }
 ```
@@ -122,11 +124,11 @@ resolve() { ENDS=$(date -u +%Y-%m-%dT%H:%M:%SZ) fire "$@"; }
 Tick each item, and note anything that differs:
 
 - [ ] **Startup:** the log shows `telegram bot ready`; `curl -s 127.0.0.1:9095/healthz` is OK after the first poll.
-- [ ] **Fire:** `fire HostDown server-1`. One message within ~10 s: readable, times shown, buttons `🔕 2m`, `🔕 1h` in the first row and `📊`/`📖` links in the second; the links open.
+- [ ] **Fire:** `fire HostDown server-1`. One message within ~10 s: readable, times shown, buttons `🔕 2m`, `🔕 1h` in the first row and `📈 Grafana`/`📖 Runbook` links in the second; the links open.
 - [ ] **Added alert:** `fire HostDown server-1 sdb` (same group, new alert). Within ~30 s the original message is edited and a reply mentions the new alert. `fire HostDown server-2` gives a second, separate message.
 - [ ] **Silence:** press `🔕 1h`. Toast "Silenced for 1h."; the message shows the silence and an Unsilence button; the silence appears in `http://127.0.0.1:9093/#/silences` with matchers exactly `alertname`, `instance`, created by `telegram:<your id>`.
 - [ ] **Unsilence:** press Unsilence. Toast "Silence removed."; the silence is expired in Alertmanager; the silence buttons are back. Pressing the old Unsilence again (scroll up, or press twice quickly) gives "This button has expired."
-- [ ] **Silence runs out:** press `🔕 2m`, wait over 2 minutes, then press Unsilence. It must not say "Alertmanager is unreachable". At the next reminder the silence buttons are back.
+- [ ] **Silence runs out:** press `🔕 2m`, wait over 2 minutes, then press Unsilence. It must not say "Alertmanager is unreachable". After the next notification for the group (e.g. `fire HostDown server-1 sdc`) the silence buttons are back.
 - [ ] **Alertmanager down:** stop Alertmanager, press `🔕 1h`. Toast "Alertmanager is unreachable. Nothing changed."; the message is unchanged. Start it again and the button works.
 - [ ] **Partly resolved:** `resolve HostDown server-1 sdb`. The message is edited; the buttons stay.
 - [ ] **Resolve:** `resolve HostDown server-1`. The message is edited to resolved and has no buttons.

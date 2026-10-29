@@ -22,7 +22,7 @@
 {{end}}
 {{- with more .Limits.MaxAlerts $firing .TruncatedAlerts}}…and {{.}} more
 {{end}}
-{{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}} ({{tgago .}}){{end}}{{end}}
+{{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}}{{with tgago .}} ({{.}}){{end}}{{end}}{{end}}
 {{- with .Silence}}
 🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{end}}
 {{- if $firing}}{{with description (index $firing 0) | clip $.Limits.Description}}
