@@ -211,6 +211,16 @@ type Message struct {
 	Silent bool
 	// Keyboard, if not nil, is attached as an inline keyboard.
 	Keyboard *Keyboard
+	// ForceReply, if not empty, opens the reply field for the users
+	// mentioned in Text (or the author of the message replied to), with
+	// ForceReply as its placeholder. Not combined with Keyboard.
+	ForceReply string
+}
+
+type forceReply struct {
+	ForceReply  bool   `json:"force_reply"`
+	Selective   bool   `json:"selective"`
+	Placeholder string `json:"input_field_placeholder,omitempty"`
 }
 
 // Keyboard is an inline keyboard: rows of buttons.
@@ -304,7 +314,7 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		DisableNotification bool               `json:"disable_notification,omitempty"`
 		ProtectContent      bool               `json:"protect_content,omitempty"`
 		ReplyParameters     *replyParameters   `json:"reply_parameters,omitempty"`
-		ReplyMarkup         *Keyboard          `json:"reply_markup,omitempty"`
+		ReplyMarkup         any                `json:"reply_markup,omitempty"`
 	}{
 		ChatID:              m.ChatID,
 		MessageThreadID:     m.ThreadID,
@@ -317,6 +327,12 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	}
 	if m.ReplyTo != 0 {
 		params.ReplyParameters = &replyParameters{MessageID: m.ReplyTo, AllowSendingWithoutReply: true}
+	}
+	if m.Keyboard == nil {
+		params.ReplyMarkup = nil // a nil *Keyboard in an interface is not omitted
+	}
+	if m.ForceReply != "" {
+		params.ReplyMarkup = forceReply{ForceReply: true, Selective: true, Placeholder: m.ForceReply}
 	}
 	var res struct {
 		MessageID int `json:"message_id"`
@@ -349,12 +365,28 @@ func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID in
 	return err
 }
 
-// Update is an incoming update. The relay asks only for callback queries
-// and reactions.
+// Update is an incoming update. The relay asks only for callback queries,
+// reactions and messages (for replies to its own messages).
 type Update struct {
 	UpdateID        int64            `json:"update_id"`
 	CallbackQuery   *CallbackQuery   `json:"callback_query"`
 	MessageReaction *MessageReaction `json:"message_reaction"`
+	Message         *IncomingMessage `json:"message"`
+}
+
+// IncomingMessage is the subset of a received message the relay uses. As a
+// chat administrator, a bot receives every message in a group; the relay
+// acts only on replies to its own messages and drops the rest unlogged.
+type IncomingMessage struct {
+	MessageID int `json:"message_id"`
+	Chat      struct {
+		ID int64 `json:"id"`
+	} `json:"chat"`
+	From           *User  `json:"from"` // nil for messages on behalf of a chat
+	Text           string `json:"text"`
+	ReplyToMessage *struct {
+		MessageID int `json:"message_id"`
+	} `json:"reply_to_message"`
 }
 
 // MessageReaction is a change of one user's reactions on a message. Bots
@@ -411,10 +443,21 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout time.Dura
 		Offset         int64    `json:"offset,omitempty"`
 		Timeout        int      `json:"timeout"`
 		AllowedUpdates []string `json:"allowed_updates"`
-	}{offset, int(timeout.Seconds()), []string{"callback_query", "message_reaction"}}
+	}{offset, int(timeout.Seconds()), []string{"callback_query", "message_reaction", "message"}}
 	var updates []Update
 	err := c.call(ctx, "getUpdates", params, &updates)
 	return updates, err
+}
+
+// PinChatMessage pins a message without notifying the chat. The bot needs
+// the right to pin messages.
+func (c *Client) PinChatMessage(ctx context.Context, chatID int64, messageID int) error {
+	params := struct {
+		ChatID              int64 `json:"chat_id"`
+		MessageID           int   `json:"message_id"`
+		DisableNotification bool  `json:"disable_notification"`
+	}{chatID, messageID, true}
+	return c.call(ctx, "pinChatMessage", params, nil)
 }
 
 // SetMessageReaction replaces the bot's reaction on a message with emoji,

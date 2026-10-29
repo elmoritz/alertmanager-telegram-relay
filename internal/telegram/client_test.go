@@ -369,6 +369,35 @@ func TestReactionUpdate(t *testing.T) {
 	}
 }
 
+// Shape of a real update, IDs replaced.
+func TestIncomingMessage(t *testing.T) {
+	var u Update
+	err := json.Unmarshal([]byte(`{"update_id":9,"message":{"message_id":43,"message_thread_id":5,"from":{"id":11111111,"is_bot":false,"first_name":"Alice"},"chat":{"id":-1001234567890,"type":"supergroup","is_forum":true},"date":1,"reply_to_message":{"message_id":42,"from":{"id":1,"is_bot":true,"first_name":"relay"},"chat":{"id":-1001234567890},"date":1,"text":"x"},"text":"3h kernel update","is_topic_message":true}}`), &u)
+	m := u.Message
+	if err != nil || m == nil || m.MessageID != 43 || m.Chat.ID != -1001234567890 || m.From == nil || m.From.ID != 11111111 || m.Text != "3h kernel update" || m.ReplyToMessage == nil || m.ReplyToMessage.MessageID != 42 {
+		t.Fatalf("%+v %v", m, err)
+	}
+}
+
+func TestForceReply(t *testing.T) {
+	f := &fake{t: t, responses: []string{`{"ok":true,"result":{"message_id":1}}`, `{"ok":true,"result":{"message_id":2}}`}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	if _, err := c.SendMessage(context.Background(), Message{ChatID: 1, Text: "a", ReplyTo: 7, ForceReply: "3h kernel update"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SendMessage(context.Background(), Message{ChatID: 1, Text: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(f.requests[0]["reply_markup"]); got != "map[force_reply:true input_field_placeholder:3h kernel update selective:true]" {
+		t.Errorf("reply_markup = %s", got)
+	}
+	if _, set := f.requests[1]["reply_markup"]; set {
+		t.Errorf("reply_markup sent without keyboard: %v", f.requests[1])
+	}
+}
+
 func TestSetMessageReaction(t *testing.T) {
 	f := &fake{t: t}
 	srv := httptest.NewServer(f)
@@ -409,7 +438,7 @@ func TestPolling(t *testing.T) {
 		t.Error("message update parsed as callback")
 	}
 	req := f.requests[0]
-	if req["offset"] != float64(7) || req["timeout"] != float64(25) || fmt.Sprint(req["allowed_updates"]) != "[callback_query message_reaction]" {
+	if req["offset"] != float64(7) || req["timeout"] != float64(25) || fmt.Sprint(req["allowed_updates"]) != "[callback_query message_reaction message]" {
 		t.Errorf("getUpdates request = %v", req)
 	}
 

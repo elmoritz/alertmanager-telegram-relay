@@ -140,11 +140,12 @@ end).
 - Templates are Go `html/template` files. A default ships in the binary
   (`internal/render/default.tmpl`); a user-supplied file (`TEMPLATE_FILE`) can
   redefine any of its blocks: `message`, `firing`, `resolved`, `title`,
-  `severity_emoji`, `added`, `reminder`, `resolve_reply`. The template data
+  `severity_emoji`, `added`, `reminder`, `escalation`, `resolve_reply`,
+  `board`. The template data
   mirrors Alertmanager's (`.Status`, `.Alerts.Firing`, `.CommonLabels`,
   `.GroupLabels`, `.CommonAnnotations`, `.ExternalURL`, `.TruncatedAlerts`) so
   existing Alertmanager templates port with little change, plus `.Added`,
-  `.OpenedAt`, `.Now` and `.Limits`. Helper functions: `clip`, `oneline`,
+  `.OpenedAt`, `.Now`, `.Limits`, `.Silence` and `.Ack`. Helper functions: `clip`, `oneline`,
   `first`, `more`, `summary`, `description`, `alertname`, `severity`,
   `earliest`, `duration`, `httpURL`, `tgtime`, `tgago`. The templates are tried
   on a sample notification at startup; a broken one stops the relay from
@@ -170,7 +171,8 @@ Inline keyboard under every firing message:
 | 🔕 1h, 🔕 24h | callback | Create a silence for this incident's group labels (see SECURITY.md §3). Message is edited to show "🔕 silenced until 18:00 by Alice" and the button row becomes [↩️ Unsilence]. |
 | 🔕 Silenced until 18:00 by Alice | disabled | Shown above ↩️ Unsilence while a silence made from Telegram is active. Time in `TIMEZONE` ("Tue 18:00" on another day), name clipped to 32 characters. Cannot be pressed. |
 | ↩️ Unsilence | callback, highlighted | Expire that silence (`DELETE /api/v2/silence/{id}`). Row returns to the silence buttons. |
-| 👀 I'm on it | callback | Mark the incident as handled by the presser (see Acknowledgement below). Becomes ↩️ Release. |
+| ⏱ Custom… | callback | Ask for a custom silence: the relay replies "reply with a duration and a reason" and opens the presser's reply field (see Custom silence below). |
+| 👀 I'm on it | callback | Mark the incident as handled by the presser (see Acknowledgement below). Becomes ↩️ Release. In its own row below the silence buttons. |
 | ↩️ Release | callback | Undo "I'm on it". Any admin may release, not only the one who acknowledged. |
 | 📈 Grafana | URL | Opens a dashboard link from the alert's `dashboard_url` annotation, else `GRAFANA_URL` if set. Hidden if neither exists. |
 | 📖 Runbook | URL | From the `runbook_url` annotation. Hidden if absent. |
@@ -189,8 +191,8 @@ Inline keyboard under every firing message:
   comment "Silenced from Telegram via alertmanager-telegram-relay".
 - Durations are configurable (`SILENCE_DURATIONS=1h,24h`): 1 to 4 of them,
   each between 1 minute and 7 days.
-- Updates arrive by long polling (`getUpdates`, 25 s, only `callback_query`
-  and `message_reaction`).
+- Updates arrive by long polling (`getUpdates`, 25 s, only `callback_query`,
+  `message_reaction` and `message`).
   The relay never sets a webhook. A `409` (another consumer of the same token,
   or a webhook set on the bot) is logged as an error and retried with backoff.
 - **Every press is checked, in this order** (SECURITY.md §2 and §3):
@@ -242,6 +244,27 @@ Inline keyboard under every firing message:
 - Notifications and button presses for the same group are processed one at a
   time, so the message is never edited from two sides at once.
 
+### Custom silence by reply
+
+- An admin can reply to an incident's message (or to one of its escalation
+  replies, or to the prompt "⏱ Custom…" sends) with a duration and an
+  optional reason: `3h kernel update`, `45m`, `2d disk swap` (#7). Strictly:
+  a number with `m`, `h` or `d`, 1 minute to 7 days, then a reason of at most
+  200 characters. The silence is created like a button's (matchers from the
+  stored group labels only, `createdBy: telegram:<user id>`), with the reason
+  before the relay's comment. An active silence made from Telegram is
+  replaced (the new one is created, then the old one expired).
+- Feedback is a reaction on the reply: 👌 done, 🤔 not understood, 🤷
+  Alertmanager unreachable (nothing changed). The message is updated as for
+  a button press.
+- "⏱ Custom…" replies under the incident with a prompt that mentions the
+  presser and opens their reply field (`force_reply`, selective). Telegram
+  has `force_reply` only for a whole message, not for one inline button
+  (Bot API 10.3 changelog), hence the prompt.
+- Replies from anyone else, replies to other messages, and every other
+  message are dropped unlogged (SECURITY.md §2). The relay asks for
+  `message` updates for this.
+
 ### Acknowledgement
 
 - "I'm on it" (#13) is offered on every firing message, with or without
@@ -275,6 +298,21 @@ Inline keyboard under every firing message:
 - Direct messages to admins (also proposed in #5) are not implemented: they
   would carry alert text outside the allowed chats and need a change to
   SECURITY.md first.
+
+### Status board
+
+- With `STATUS_BOARD=true`, the relay keeps one message per chat in
+  `TELEGRAM_CHAT_IDS`, pinned without notification (#6): "🚦 2 firing" and
+  one line per firing incident (severity, title, 😴 silenced, 👀
+  acknowledged), each linking to its message, or "✅ All clear since 14:02".
+  In a forum it is in the General topic.
+- Every 30 seconds the board is rendered and edited only if its text changed,
+  so it is edited at most twice a minute. If it was deleted, a new one is
+  sent and pinned. Pinning needs the bot's right to pin messages; without it
+  the board stays unpinned (warning in the log).
+- Links (`https://t.me/c/…`) exist only in supergroups; in other chats the
+  board lists incidents without links. At most 30 incidents are listed, then
+  "…and N more"; the template block is `board`.
 
 ## 6. Commands (later, optional)
 
@@ -375,6 +413,7 @@ names the variable but never echoes its value.
 | `QUIET_SEVERITIES` | v0.3 | | empty | Comma-separated severities sent without sound; not `critical` (§7) |
 | `QUIET_HOURS` | v0.3 | | empty | e.g. `22:00-07:00` in `TIMEZONE`: everything but critical without sound (§7) |
 | `ESCALATE_AFTER` | v0.3 | | off | e.g. `15m`: loud reply to unacknowledged critical incidents, up to 3 times (§5) |
+| `STATUS_BOARD` | v0.3 | | `false` | Pinned status board per chat (§5) |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |

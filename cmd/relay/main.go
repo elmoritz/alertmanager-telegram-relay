@@ -140,6 +140,13 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	if processor.EscalateAfter > 0 {
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
 	}
+	if cfg.StatusBoard {
+		processor.BoardChats = cfg.ChatIDs
+		go func() {
+			processor.UpdateBoards(runCtx)
+			every(runCtx, incident.BoardInterval, processor.UpdateBoards)
+		}()
+	}
 
 	// Button presses arrive by long polling: no inbound connection needed.
 	var lastPoll atomic.Int64
@@ -230,7 +237,7 @@ func checkBot(tg *telegram.Client, log *slog.Logger) error {
 }
 
 // every runs check at each interval until ctx is done: the silenced-group
-// check and escalations (SPEC §5).
+// check, escalations and status boards (SPEC §5).
 func every(ctx context.Context, interval time.Duration, check func(context.Context)) {
 	t := time.NewTicker(interval)
 	defer t.Stop()

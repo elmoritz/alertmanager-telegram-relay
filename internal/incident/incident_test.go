@@ -36,6 +36,7 @@ type call struct {
 	Keyboard            *telegram.Keyboard
 	ChatID              int64
 	ThreadID            int
+	ForceReply          bool
 }
 
 func (c call) String() string {
@@ -81,7 +82,13 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &p)
-	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID}
+	var force struct {
+		Markup struct {
+			ForceReply bool `json:"force_reply"`
+		} `json:"reply_markup"`
+	}
+	_ = json.Unmarshal(b, &force)
+	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID, ForceReply: force.Markup.ForceReply}
 	if p.ReplyParameters != nil {
 		c.ReplyTo = p.ReplyParameters.MessageID
 	}

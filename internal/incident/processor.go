@@ -26,6 +26,7 @@ type Telegram interface {
 	SendMessage(ctx context.Context, m telegram.Message) (int, error)
 	EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *telegram.Keyboard) error
 	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
+	PinChatMessage(ctx context.Context, chatID int64, messageID int) error
 }
 
 // Processor carries out the plan for one notification. It also renders and
@@ -47,6 +48,8 @@ type Processor struct {
 	Quiet  route.Quiet
 	// EscalateAfter is the ESCALATE_AFTER interval; 0 turns escalation off.
 	EscalateAfter time.Duration
+	// BoardChats are the chats with a pinned status board (STATUS_BOARD).
+	BoardChats []int64
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
