@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/store"
 )
 
 // SilencedCheckInterval is how often CheckSilenced should run.
@@ -28,15 +29,15 @@ func (b *Buttons) CheckSilenced(ctx context.Context) {
 	if b.Alertmanager == nil {
 		return
 	}
-	keys, err := b.Processor.Store.SilencedIncidents()
+	incs, err := b.Processor.Store.Incidents(func(inc *store.Incident) bool { return inc.Silence != nil })
 	if err != nil {
 		b.Log.Error("checking silenced incidents", "err", err)
 		return
 	}
 	silenced := map[string]bool{}
-	for _, k := range keys {
-		silenced[k] = true
-		b.checkSilenced(ctx, k)
+	for _, inc := range incs {
+		silenced[inc.GroupKey] = true
+		b.checkSilenced(ctx, inc.GroupKey)
 	}
 	for k := range b.emptySince {
 		if !silenced[k] {

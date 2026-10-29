@@ -112,7 +112,7 @@ func TestSilenceRunsOutWhileFiring(t *testing.T) {
 	}
 	calls := e.check(31 * time.Minute)
 	expectCalls(t, calls, "editMessageText(#1)")
-	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h" || strings.Contains(calls[0].Text, "silenced") {
+	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" || strings.Contains(calls[0].Text, "silenced") {
 		t.Errorf("keyboard %q, text %q", got, calls[0].Text)
 	}
 	if inc, _ := e.store.Incident(gmsg().GroupKey); inc == nil || inc.Silence != nil {

@@ -61,6 +61,8 @@ type Config struct {
 	Routes          []route.Rule
 	QuietSeverities []string
 	QuietHours      *route.Window // nil: none
+	// EscalateAfter is ESCALATE_AFTER; 0 turns escalation off.
+	EscalateAfter time.Duration
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -195,6 +197,17 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 			c.QuietSeverities = append(c.QuietSeverities, s)
 		}
 	}
+	if v := str("ESCALATE_AFTER", ""); v != "" {
+		d, err := time.ParseDuration(v)
+		switch {
+		case err != nil:
+			fail(fmt.Errorf("ESCALATE_AFTER: %w", err))
+		case d < time.Minute:
+			fail(errors.New("ESCALATE_AFTER: must be at least 1m"))
+		default:
+			c.EscalateAfter = d
+		}
+	}
 	if v := str("QUIET_HOURS", ""); v != "" {
 		w, err := route.ParseWindow(v)
 		if err != nil {
@@ -324,6 +337,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("routes", len(c.Routes)),
 		slog.Any("quiet_severities", c.QuietSeverities),
 		slog.Bool("quiet_hours", c.QuietHours != nil),
+		slog.String("escalate_after", c.EscalateAfter.String()),
 	)
 }
 

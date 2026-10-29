@@ -59,6 +59,9 @@ type fakeTelegram struct {
 	calls  []call
 	nextID int
 	fail   func(c call, n int) string // n: index of this call
+	// reactions records setMessageReaction calls as "#<message id> <emoji>"
+	// ("" emoji: removed), kept apart from calls.
+	reactions []string
 }
 
 func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,12 +77,22 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ReplyParameters     *struct {
 			MessageID int `json:"message_id"`
 		} `json:"reply_parameters"`
+		Reaction []telegram.ReactionType `json:"reaction"`
 	}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &p)
 	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID}
 	if p.ReplyParameters != nil {
 		c.ReplyTo = p.ReplyParameters.MessageID
+	}
+	if c.Method == "setMessageReaction" {
+		emoji := ""
+		if len(p.Reaction) > 0 {
+			emoji = p.Reaction[0].Emoji
+		}
+		f.reactions = append(f.reactions, fmt.Sprintf("#%d %s", p.MessageID, emoji))
+		io.WriteString(w, `{"ok":true,"result":true}`)
+		return
 	}
 	n := len(f.calls)
 	f.calls = append(f.calls, c)
@@ -143,6 +156,7 @@ func newEnv(t *testing.T) *env {
 		Metrics:   metrics.New(func() float64 { return 0 }, func() float64 { return 0 }),
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Reminders: config.RemindersReply,
+		Buttons:   ButtonConfig{ActionTTL: 7 * 24 * time.Hour},
 		Router:    route.Router{Default: route.Target{ChatID: chat}},
 		RetryFor:  10 * time.Minute,
 		Now:       func() time.Time { return e.now },

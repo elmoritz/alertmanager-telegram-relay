@@ -58,9 +58,9 @@ func TestSilencedIncidents(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	keys, err := s.SilencedIncidents()
-	if err != nil || len(keys) != 1 || keys[0] != "silenced" {
-		t.Errorf("got %v, %v", keys, err)
+	incs, err := s.Incidents(func(inc *Incident) bool { return inc.Silence != nil })
+	if err != nil || len(incs) != 1 || incs[0].GroupKey != "silenced" {
+		t.Errorf("got %v, %v", incs, err)
 	}
 }
 

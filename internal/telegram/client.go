@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -348,10 +349,45 @@ func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID in
 	return err
 }
 
-// Update is an incoming update. The relay asks only for callback queries.
+// Update is an incoming update. The relay asks only for callback queries
+// and reactions.
 type Update struct {
-	UpdateID      int64          `json:"update_id"`
-	CallbackQuery *CallbackQuery `json:"callback_query"`
+	UpdateID        int64            `json:"update_id"`
+	CallbackQuery   *CallbackQuery   `json:"callback_query"`
+	MessageReaction *MessageReaction `json:"message_reaction"`
+}
+
+// MessageReaction is a change of one user's reactions on a message. Bots
+// receive it only as chat administrators. User is nil for anonymous
+// reactions (on behalf of a chat).
+type MessageReaction struct {
+	Chat struct {
+		ID int64 `json:"id"`
+	} `json:"chat"`
+	MessageID   int            `json:"message_id"`
+	User        *User          `json:"user"`
+	OldReaction []ReactionType `json:"old_reaction"`
+	NewReaction []ReactionType `json:"new_reaction"`
+}
+
+// ReactionType is a reaction; only "emoji" reactions carry Emoji.
+type ReactionType struct {
+	Type  string `json:"type"`
+	Emoji string `json:"emoji,omitempty"`
+}
+
+// Added returns the emoji reactions in r that were not there before.
+func (r *MessageReaction) Added() []string {
+	var added []string
+	for _, n := range r.NewReaction {
+		if n.Type != "emoji" {
+			continue
+		}
+		if !slices.ContainsFunc(r.OldReaction, func(o ReactionType) bool { return o.Type == "emoji" && o.Emoji == n.Emoji }) {
+			added = append(added, n.Emoji)
+		}
+	}
+	return added
 }
 
 // CallbackQuery is a press of a callback button. Data is whatever the client
@@ -375,10 +411,26 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout time.Dura
 		Offset         int64    `json:"offset,omitempty"`
 		Timeout        int      `json:"timeout"`
 		AllowedUpdates []string `json:"allowed_updates"`
-	}{offset, int(timeout.Seconds()), []string{"callback_query"}}
+	}{offset, int(timeout.Seconds()), []string{"callback_query", "message_reaction"}}
 	var updates []Update
 	err := c.call(ctx, "getUpdates", params, &updates)
 	return updates, err
+}
+
+// SetMessageReaction replaces the bot's reaction on a message with emoji,
+// or removes it if emoji is "". Bots can set one reaction from Telegram's
+// fixed list (not ✅ or 🔕, checked against the live API).
+func (c *Client) SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error {
+	reaction := []ReactionType{}
+	if emoji != "" {
+		reaction = append(reaction, ReactionType{Type: "emoji", Emoji: emoji})
+	}
+	params := struct {
+		ChatID    int64          `json:"chat_id"`
+		MessageID int            `json:"message_id"`
+		Reaction  []ReactionType `json:"reaction"`
+	}{chatID, messageID, reaction}
+	return c.call(ctx, "setMessageReaction", params, nil)
 }
 
 // AnswerCallbackQuery stops the client's progress indicator, showing text as

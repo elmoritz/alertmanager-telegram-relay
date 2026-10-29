@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"crypto/rand"
 	"encoding/base64"
+	"iter"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,10 +36,10 @@ func newActionID() string {
 }
 
 // issueButtons makes sure inc carries valid callback buttons for its state:
-// silence buttons, or an unsilence button while a silence is active. New
-// actions are stored right away; issued reports whether there are any, and
-// stale lists the IDs they replace, to be deleted once the new keyboard is
-// out.
+// silence buttons, or an unsilence button while a silence is active, and
+// "I'm on it", or "Release" while someone is on it. New actions are stored
+// right away; issued reports whether there are any, and stale lists the IDs
+// they replace, to be deleted once the new keyboard is out.
 //
 // No silence buttons are offered for a group without group labels: a
 // silence for it would have no matchers (SECURITY.md §3).
@@ -48,15 +50,26 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 		force = true
 	}
 
-	wantKind := store.ActionSilence
-	if inc.Silence != nil {
-		wantKind = store.ActionUnsilence
+	var want []string // button kinds, in keyboard order
+	switch {
+	case inc.Silence != nil:
+		want = append(want, store.ActionUnsilence)
+	case cfg.Silences && len(inc.GroupLabels) > 0:
+		for range cfg.Durations {
+			want = append(want, store.ActionSilence)
+		}
 	}
-	if !cfg.Silences || (len(inc.GroupLabels) == 0 && inc.Silence == nil) {
-		stale, inc.Buttons = inc.ButtonIDs(), nil
-		return stale, false, nil
+	if inc.Ack != nil {
+		want = append(want, store.ActionRelease)
+	} else {
+		want = append(want, store.ActionAck)
 	}
-	fresh := len(inc.Buttons) > 0 && inc.Buttons[0].Kind == wantKind && now.Sub(inc.ButtonsIssued) < cfg.ActionTTL/2
+
+	var have []string
+	for _, b := range inc.Buttons {
+		have = append(have, b.Kind)
+	}
+	fresh := slices.Equal(have, want) && now.Sub(inc.ButtonsIssued) < cfg.ActionTTL/2
 	if fresh && !force {
 		return nil, false, nil
 	}
@@ -68,11 +81,20 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 		actions = append(actions, a)
 		refs = append(refs, store.ButtonRef{ActionID: a.ID, Kind: a.Kind, Label: label})
 	}
-	if inc.Silence != nil {
-		add(&store.Action{Kind: store.ActionUnsilence, SilenceID: inc.Silence.ID}, "↩️ Unsilence")
-	} else {
-		for _, d := range cfg.Durations {
-			add(&store.Action{Kind: store.ActionSilence, Duration: d}, "🔕 "+shortDuration(d))
+	durations := slices.Values(cfg.Durations)
+	next, stop := iter.Pull(durations)
+	defer stop()
+	for _, kind := range want {
+		switch kind {
+		case store.ActionUnsilence:
+			add(&store.Action{Kind: kind, SilenceID: inc.Silence.ID}, "↩️ Unsilence")
+		case store.ActionSilence:
+			d, _ := next()
+			add(&store.Action{Kind: kind, Duration: d}, "🔕 "+shortDuration(d))
+		case store.ActionAck:
+			add(&store.Action{Kind: kind}, "👀 I'm on it")
+		case store.ActionRelease:
+			add(&store.Action{Kind: kind}, "↩️ Release")
 		}
 	}
 	if err := p.Store.PutActions(actions...); err != nil {
@@ -100,7 +122,7 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 		kb.Rows = append(kb.Rows, []telegram.Button{{Text: resolvedLabel(m), Disabled: true}})
 		return kb
 	}
-	if s := inc.Silence; s != nil && len(inc.Buttons) > 0 && inc.Buttons[0].Kind == store.ActionUnsilence {
+	if s := inc.Silence; s != nil && inc.HasButtonKind(store.ActionUnsilence) {
 		label := "🔕 Silenced until " + p.Render.ShortTime(s.Until)
 		if by := clipName(s.ByName); by != "" {
 			label += " by " + by

@@ -338,3 +338,24 @@ func TestLiveTopics(t *testing.T) {
 		t.Errorf("IsThreadGone = %v, IsRetryable = %v for %v", telegram.IsThreadGone(err), telegram.IsRetryable(err), err)
 	}
 }
+
+// The bot's status reactions must be on Telegram's list for bots; ✅ and 🔕
+// are not.
+func TestLiveReactions(t *testing.T) {
+	tg, chat := livetest.Telegram(t)
+	c := ctx(t)
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": reactions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []string{"👀", "😴", "👌", ""} {
+		if err := tg.SetMessageReaction(c, chat, id, e); err != nil {
+			t.Errorf("reaction %q: %v", e, err)
+		}
+	}
+	for _, e := range []string{"✅", "🔕"} {
+		if err := tg.SetMessageReaction(c, chat, id, e); err == nil {
+			t.Errorf("reaction %q accepted; it could be used after all", e)
+		}
+	}
+}

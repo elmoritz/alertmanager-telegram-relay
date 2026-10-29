@@ -73,6 +73,14 @@ type Data struct {
 	Limits Limits
 	// Silence is set while a silence made from Telegram is active.
 	Silence *Silence
+	// Ack is set while someone has said "I'm on it".
+	Ack *Ack
+}
+
+// Ack is an "I'm on it" from an admin.
+type Ack struct {
+	Since time.Time
+	By    string // the Telegram user's first name: user content, escaped like any other
 }
 
 // Silence describes a silence made through the message's buttons.
@@ -182,6 +190,12 @@ func (r *Renderer) Added(d Data) (string, error) {
 // Reminder renders the reply to a repeated notification with no change.
 func (r *Renderer) Reminder(d Data) (string, error) {
 	return r.reply("reminder", d, "⏰ still firing")
+}
+
+// Escalation renders the loud reply to a critical incident nobody has
+// acknowledged.
+func (r *Renderer) Escalation(d Data) (string, error) {
+	return r.reply("escalation", d, "🚨 still unacknowledged")
 }
 
 // ResolveReply renders the optional reply sent when an incident resolves.
@@ -447,6 +461,7 @@ func sampleData(now time.Time) []Data {
 		CommonAnnotations: map[string]string{}, OpenedAt: now.Add(-time.Hour), Limits: steps[0]}
 	silenced := firing
 	silenced.Silence = &Silence{Until: now.Add(time.Hour), By: "Sample"}
+	silenced.Ack = &Ack{Since: now.Add(-time.Minute), By: "Sample"}
 	resolved := firing
 	resolved.Status, resolved.Alerts = alertmanager.StatusResolved, Alerts{b}
 	return []Data{firing, silenced, resolved}

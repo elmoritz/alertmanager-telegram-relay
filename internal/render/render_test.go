@@ -72,13 +72,16 @@ func TestGolden(t *testing.T) {
 			if name == "firing_single" {
 				d.Silence = &Silence{Until: time.Date(2026, 3, 2, 8, 19, 0, 0, time.UTC), By: "Alice <b>"}
 			}
+			if name == "firing_group" {
+				d.Ack = &Ack{Since: time.Date(2026, 3, 2, 7, 0, 0, 0, time.UTC), By: "Bob & <i>"}
+			}
 			msg, err := r.Message(d)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var out strings.Builder
 			out.WriteString(msg + "\n")
-			replies := []func(Data) (string, error){r.Added, r.Reminder}
+			replies := []func(Data) (string, error){r.Added, r.Reminder, r.Escalation}
 			if d.Status == alertmanager.StatusResolved {
 				replies = []func(Data) (string, error){r.ResolveReply}
 			}

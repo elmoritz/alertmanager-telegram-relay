@@ -103,13 +103,14 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 			GrafanaURL: cfg.GrafanaURL,
 			ShowSource: cfg.ShowSourceButton,
 		},
-		Reminders:    cfg.Reminders,
-		ResolveReply: cfg.ResolveReply,
-		Router:       cfg.Router(),
-		Quiet:        cfg.Quiet(),
-		RetryFor:     retryFor,
-		Now:          time.Now,
-		Sleep:        incident.SleepContext,
+		Reminders:     cfg.Reminders,
+		ResolveReply:  cfg.ResolveReply,
+		Router:        cfg.Router(),
+		Quiet:         cfg.Quiet(),
+		EscalateAfter: cfg.EscalateAfter,
+		RetryFor:      retryFor,
+		Now:           time.Now,
+		Sleep:         incident.SleepContext,
 	}
 	buttons := &incident.Buttons{
 		Processor:    processor,
@@ -134,7 +135,10 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	buttons.Enqueue = dispatcher.Enqueue
 	go expire(runCtx, st, cfg.IncidentTTL, log)
 	if buttons.Alertmanager != nil {
-		go checkSilenced(runCtx, buttons)
+		go every(runCtx, incident.SilencedCheckInterval, buttons.CheckSilenced)
+	}
+	if processor.EscalateAfter > 0 {
+		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
 	}
 
 	// Button presses arrive by long polling: no inbound connection needed.
@@ -225,17 +229,17 @@ func checkBot(tg *telegram.Client, log *slog.Logger) error {
 	return nil
 }
 
-// checkSilenced looks after incidents silenced from Telegram, whose resolve
-// Alertmanager does not report (SPEC §5).
-func checkSilenced(ctx context.Context, b *incident.Buttons) {
-	t := time.NewTicker(incident.SilencedCheckInterval)
+// every runs check at each interval until ctx is done: the silenced-group
+// check and escalations (SPEC §5).
+func every(ctx context.Context, interval time.Duration, check func(context.Context)) {
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			b.CheckSilenced(ctx)
+			check(ctx)
 		}
 	}
 }

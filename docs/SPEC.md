@@ -122,7 +122,7 @@ server-1 has not answered for 5 minutes      ← summary, one line per alert (ma
 since Mon 04:56 (2h 23m ago)                 ← <tg-time> "wt" and "r", so it shows in the reader's zone
 
 ▸ description, collapsed                     ← <blockquote expandable>, first alert only, clipped
-[🔕 1h] [🔕 24h]                             ← inline keyboard (§5)
+[🔕 1h] [🔕 24h] [👀 I'm on it]              ← inline keyboard (§5)
 [📈 Grafana] [📖 Runbook]
 [📋 Copy command]
 ```
@@ -170,6 +170,8 @@ Inline keyboard under every firing message:
 | 🔕 1h, 🔕 24h | callback | Create a silence for this incident's group labels (see SECURITY.md §3). Message is edited to show "🔕 silenced until 18:00 by Alice" and the button row becomes [↩️ Unsilence]. |
 | 🔕 Silenced until 18:00 by Alice | disabled | Shown above ↩️ Unsilence while a silence made from Telegram is active. Time in `TIMEZONE` ("Tue 18:00" on another day), name clipped to 32 characters. Cannot be pressed. |
 | ↩️ Unsilence | callback, highlighted | Expire that silence (`DELETE /api/v2/silence/{id}`). Row returns to the silence buttons. |
+| 👀 I'm on it | callback | Mark the incident as handled by the presser (see Acknowledgement below). Becomes ↩️ Release. |
+| ↩️ Release | callback | Undo "I'm on it". Any admin may release, not only the one who acknowledged. |
 | 📈 Grafana | URL | Opens a dashboard link from the alert's `dashboard_url` annotation, else `GRAFANA_URL` if set. Hidden if neither exists. |
 | 📖 Runbook | URL | From the `runbook_url` annotation. Hidden if absent. |
 | 🔗 Source | URL | `generatorURL` of the first alert, if `SHOW_SOURCE_BUTTON=true` (default off: it is usually an internal Prometheus URL). |
@@ -187,7 +189,8 @@ Inline keyboard under every firing message:
   comment "Silenced from Telegram via alertmanager-telegram-relay".
 - Durations are configurable (`SILENCE_DURATIONS=1h,24h`): 1 to 4 of them,
   each between 1 minute and 7 days.
-- Updates arrive by long polling (`getUpdates`, 25 s, only `callback_query`).
+- Updates arrive by long polling (`getUpdates`, 25 s, only `callback_query`
+  and `message_reaction`).
   The relay never sets a webhook. A `409` (another consumer of the same token,
   or a webhook set on the bot) is logged as an error and retried with backoff.
 - **Every press is checked, in this order** (SECURITY.md §2 and §3):
@@ -205,8 +208,9 @@ Inline keyboard under every firing message:
   notification after half of that. Unsilence is single-use: once pressed, its
   action and the replaced silence buttons stop working.
 - Toasts for allowed users: "Silenced for 1h.", "Silence removed.",
-  "Alertmanager is unreachable. Nothing changed.", "This button has expired."
-  The answer comes before the message is updated.
+  "It's yours.", "Released.", "Alertmanager is unreachable. Nothing
+  changed.", "This button has expired." The answer comes before the message
+  is updated.
 - If Alertmanager is unreachable, the toast says so and nothing changes (the
   buttons keep working). Unsilencing a silence Alertmanager no longer knows
   counts as success.
@@ -237,6 +241,36 @@ Inline keyboard under every firing message:
   rows, and if even that fails, as the minimal message.
 - Notifications and button presses for the same group are processed one at a
   time, so the message is never edited from two sides at once.
+
+### Acknowledgement
+
+- "I'm on it" (#13) is offered on every firing message, with or without
+  `ALERTMANAGER_URL`, in the callback row after the silence buttons. It
+  changes only the relay's state, never Alertmanager. The message shows
+  "👀 Alice is on it since 18:02" until the incident resolves or someone
+  presses ↩️ Release.
+- An admin's 👀 or 👍 reaction on an incident's current message counts as
+  "I'm on it" too (the relay asks for `message_reaction` updates; Telegram
+  sends them only to bots that are chat administrators). The same checks as
+  for buttons apply (SECURITY.md §2); anonymous reactions are ignored, and
+  removing a reaction changes nothing.
+- The bot sets one reaction on the message to show its state while
+  scrolling: 👌 resolved, else 😴 silenced, else 👀 acknowledged, else none.
+  Bots can set one reaction at a time from Telegram's fixed list, which has
+  no ✅ or 🔕 (checked against the live API). Best-effort: a failure is
+  logged at debug level.
+
+### Escalation
+
+- With `ESCALATE_AFTER` set (e.g. `15m`, at least `1m`; default off), a
+  **critical** incident that is still firing, not acknowledged and not
+  silenced gets a reply with sound, "🚨 still unacknowledged after 15m",
+  after each further `ESCALATE_AFTER` since it opened, at most 3 times
+  (#5). Quiet severities and quiet hours do not apply: critical always
+  rings. Checked every minute; counted in `relay_escalations_total`.
+- Direct messages to admins (also proposed in #5) are not implemented: they
+  would carry alert text outside the allowed chats and need a change to
+  SECURITY.md first.
 
 ## 6. Commands (later, optional)
 
@@ -336,6 +370,7 @@ names the variable but never echoes its value.
 | `ROUTES` | v0.3 | | empty | Chat and forum topic by labels (§7) |
 | `QUIET_SEVERITIES` | v0.3 | | empty | Comma-separated severities sent without sound; not `critical` (§7) |
 | `QUIET_HOURS` | v0.3 | | empty | e.g. `22:00-07:00` in `TIMEZONE`: everything but critical without sound (§7) |
+| `ESCALATE_AFTER` | v0.3 | | off | e.g. `15m`: loud reply to unacknowledged critical incidents, up to 3 times (§5) |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
@@ -364,7 +399,8 @@ names the variable but never echoes its value.
   | `relay_queue_length` | |
   | `relay_open_incidents` | |
   | `relay_telegram_updates_rejected_total` | |
-  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `ack`, `release`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_escalations_total` | |
   | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`), `result` (`ok`, `error`) |
 
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short

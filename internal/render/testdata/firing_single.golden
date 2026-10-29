@@ -10,3 +10,5 @@ Check power and network.</blockquote>
 ➕ 1 more firing: server-1 has not answered for 5 minutes
 ---
 ⏰ still firing, 2h 22m
+---
+🚨 still unacknowledged after 2h 22m

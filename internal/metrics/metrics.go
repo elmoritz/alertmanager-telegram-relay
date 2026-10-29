@@ -30,6 +30,8 @@ type Metrics struct {
 	ButtonPresses *prometheus.CounterVec
 	// AlertmanagerRequests counts Alertmanager API calls by operation and result.
 	AlertmanagerRequests *prometheus.CounterVec
+	// Escalations counts escalation replies sent.
+	Escalations prometheus.Counter
 }
 
 // New registers the metrics. queueLen and openIncidents are read on scrape.
@@ -67,17 +69,21 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 		}),
 		ButtonPresses: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_button_presses_total",
-			Help: "Button presses by allowed users, by action (silence, unsilence, unknown) and result (ok, error, stale).",
+			Help: "Button presses by allowed users, by action (silence, unsilence, ack, release, unknown) and result (ok, error, stale).",
 		}, []string{"action", "result"}),
 		AlertmanagerRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_alertmanager_requests_total",
 			Help: "Alertmanager API calls, by operation and result.",
 		}, []string{"op", "result"}),
+		Escalations: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "relay_escalations_total",
+			Help: "Escalation replies sent for unacknowledged critical incidents.",
+		}),
 	}
 	reg.MustRegister(
 		m.NotificationsReceived, m.WebhookRejected, m.TelegramRequests,
 		m.DeliveryRetries, m.DeliveriesDropped, m.TemplateErrors,
-		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests,
+		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests, m.Escalations,
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "relay_queue_length",
 			Help: "Notifications waiting to be delivered to Telegram.",

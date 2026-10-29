@@ -214,12 +214,16 @@ func TestRoutingAndQuiet(t *testing.T) {
 	m["QUIET_SEVERITIES"] = "warning, info"
 	m["QUIET_HOURS"] = "22:00-07:00"
 	m["TIMEZONE"] = "Europe/Berlin"
+	m["ESCALATE_AFTER"] = "15m"
 	if c, err = load(env(m), noFiles); err != nil {
 		t.Fatal(err)
 	}
 	r := c.Router()
 	if len(r.Rules) != 2 || r.Pick(map[string]string{"team": "media"}).ThreadID != 42 || r.Default.ChatID != -1001234567890 {
 		t.Errorf("router %+v", r)
+	}
+	if c.EscalateAfter != 15*time.Minute {
+		t.Errorf("escalate after %s", c.EscalateAfter)
 	}
 	q := c.Quiet()
 	night := time.Date(2026, 3, 2, 22, 30, 0, 0, c.Location)
@@ -234,6 +238,8 @@ func TestRoutingAndQuietInvalid(t *testing.T) {
 		"route syntax":          {"ROUTES": `team="media"`},
 		"critical quiet":        {"QUIET_SEVERITIES": "warning,critical"},
 		"quiet hours":           {"QUIET_HOURS": "late"},
+		"escalate too often":    {"ESCALATE_AFTER": "30s"},
+		"escalate not duration": {"ESCALATE_AFTER": "soon"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := valid()

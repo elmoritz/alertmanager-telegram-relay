@@ -25,6 +25,8 @@
 {{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}}{{with tgago .}} ({{.}}){{end}}{{end}}{{end}}
 {{- with .Silence}}
 🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{end}}
+{{- with .Ack}}
+👀 {{.By | oneline | clip 64}} is on it since {{tgtime .Since "wt"}}{{end}}
 {{- if $firing}}{{with description (index $firing 0) | clip $.Limits.Description}}
 
 <blockquote expandable>{{.}}</blockquote>{{end}}{{end}}
@@ -45,5 +47,7 @@
 {{- end}}
 
 {{- define "reminder"}}⏰ still firing{{with duration .OpenedAt .Now}}, {{.}}{{end}}{{end}}
+
+{{- define "escalation"}}🚨 still unacknowledged{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}
 
 {{- define "resolve_reply"}}✅ resolved{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}

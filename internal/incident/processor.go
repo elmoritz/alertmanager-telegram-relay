@@ -25,6 +25,7 @@ import (
 type Telegram interface {
 	SendMessage(ctx context.Context, m telegram.Message) (int, error)
 	EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *telegram.Keyboard) error
+	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
 }
 
 // Processor carries out the plan for one notification. It also renders and
@@ -44,6 +45,8 @@ type Processor struct {
 	// notifications are sent without sound (SPEC §7).
 	Router route.Router
 	Quiet  route.Quiet
+	// EscalateAfter is the ESCALATE_AFTER interval; 0 turns escalation off.
+	EscalateAfter time.Duration
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
@@ -127,6 +130,7 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			}
 			return j.dropped(err)
 		}
+		j.react(inc, false) // a silence may have run out
 		inc.LastSeen, inc.Firing = now, plan.Firing
 		if err := p.Store.PutIncident(inc); err != nil {
 			return err
@@ -153,6 +157,7 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 		if err := j.update(inc, p.view(inc, m, nil), true); err != nil {
 			return j.dropped(err)
 		}
+		j.react(inc, true)
 		if err := p.Store.DeleteIncident(m.GroupKey); err != nil {
 			return err
 		}
@@ -203,6 +208,9 @@ func (p *Processor) data(inc *store.Incident, m *alertmanager.Message, added []a
 	d.OpenedAt = inc.OpenedAt
 	if s := inc.Silence; s != nil && m.Status != alertmanager.StatusResolved {
 		d.Silence = &render.Silence{Until: s.Until, By: s.ByName}
+	}
+	if a := inc.Ack; a != nil && m.Status != alertmanager.StatusResolved {
+		d.Ack = &render.Ack{Since: a.At, By: a.ByName}
 	}
 	return d
 }
@@ -302,13 +310,46 @@ func (j *job) update(inc *store.Incident, v view, silent bool) error {
 		j.log.Warn("message can no longer be edited, sending a new one")
 		var id int
 		if id, err = j.send(v, 0, silent); err == nil {
-			inc.MessageID, inc.ThreadID = id, j.threadID
+			inc.MessageID, inc.ThreadID, inc.Reaction = id, j.threadID, ""
 		}
 	}
 	if err == nil {
 		inc.TextHash = h
 	}
 	return err
+}
+
+// Bot reactions on an incident's message: one at a time, from Telegram's
+// fixed list (✅ and 🔕 are not on it).
+const (
+	reactionAcked    = "👀"
+	reactionSilenced = "😴"
+	reactionResolved = "👌"
+)
+
+// react sets the bot's reaction on inc's message to show its state:
+// resolved over silenced over acknowledged. Best-effort: a failure (e.g. the
+// chat does not allow that reaction) is logged at debug level and not
+// retried until the state changes.
+func (j *job) react(inc *store.Incident, resolved bool) {
+	want := ""
+	switch {
+	case resolved:
+		want = reactionResolved
+	case inc.Silence != nil:
+		want = reactionSilenced
+	case inc.Ack != nil:
+		want = reactionAcked
+	}
+	if want == inc.Reaction {
+		return
+	}
+	inc.Reaction = want
+	ctx, cancel := context.WithTimeout(j.ctx, 10*time.Second)
+	defer cancel()
+	if err := j.p.Telegram.SetMessageReaction(ctx, inc.ChatID, inc.MessageID, want); err != nil {
+		j.log.Debug("setting reaction failed", "err", err)
+	}
 }
 
 // reply sends a best-effort reply: a failure is logged, never retried past

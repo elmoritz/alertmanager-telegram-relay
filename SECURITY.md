@@ -56,6 +56,9 @@ the Telegram account that owns the bot.
 - Every update is checked before anything else happens: for a callback query,
   both the chat the message lives in AND the user who pressed the button must be
   allowed. A group chat being allowed does not make all its members admins.
+  The same holds for a reaction that the relay acts on: allowed chat AND
+  allowed user, on a message of the relay's own; anonymous reactions (made on
+  behalf of a chat, with no user) are ignored.
 - Updates from anywhere else are dropped silently: no reply, no error message,
   no `answerCallbackQuery` text that reveals anything. They are counted in a
   metric (`relay_telegram_updates_rejected_total`) without the IDs.

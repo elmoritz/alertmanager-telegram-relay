@@ -356,6 +356,38 @@ func TestKeyboards(t *testing.T) {
 	}
 }
 
+// Shape of a real update, IDs replaced.
+func TestReactionUpdate(t *testing.T) {
+	var u Update
+	err := json.Unmarshal([]byte(`{"update_id":9,"message_reaction":{"chat":{"id":-1001234567890,"type":"supergroup","is_forum":true},"message_id":42,"user":{"id":11111111,"is_bot":false,"first_name":"Alice"},"date":1,"old_reaction":[{"type":"emoji","emoji":"👍"}],"new_reaction":[{"type":"emoji","emoji":"👍"},{"type":"emoji","emoji":"👀"},{"type":"custom_emoji","custom_emoji_id":"5"}]}}`), &u)
+	r := u.MessageReaction
+	if err != nil || r == nil || r.Chat.ID != -1001234567890 || r.MessageID != 42 || r.User == nil || r.User.ID != 11111111 {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if got := fmt.Sprint(r.Added()); got != "[👀]" {
+		t.Errorf("Added() = %s", got)
+	}
+}
+
+func TestSetMessageReaction(t *testing.T) {
+	f := &fake{t: t}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	if err := c.SetMessageReaction(context.Background(), -1001234567890, 42, "👀"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetMessageReaction(context.Background(), -1001234567890, 42, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(f.requests[0]["reaction"]); got != "[map[emoji:👀 type:emoji]]" || f.requests[0]["message_id"] != float64(42) {
+		t.Errorf("set = %v", f.requests[0])
+	}
+	if got := fmt.Sprint(f.requests[1]["reaction"]); got != "[]" {
+		t.Errorf("clear = %v", f.requests[1])
+	}
+}
+
 func TestPolling(t *testing.T) {
 	f := &fake{t: t, responses: []string{
 		`{"ok":true,"result":[{"update_id":7,"callback_query":{"id":"q1","from":{"id":11111111,"first_name":"Alice"},"message":{"message_id":42,"chat":{"id":-1001234567890},"date":1},"data":"abc"}},{"update_id":8,"message":{"text":"hi"}}]}`,
@@ -377,7 +409,7 @@ func TestPolling(t *testing.T) {
 		t.Error("message update parsed as callback")
 	}
 	req := f.requests[0]
-	if req["offset"] != float64(7) || req["timeout"] != float64(25) || fmt.Sprint(req["allowed_updates"]) != "[callback_query]" {
+	if req["offset"] != float64(7) || req["timeout"] != float64(25) || fmt.Sprint(req["allowed_updates"]) != "[callback_query message_reaction]" {
 		t.Errorf("getUpdates request = %v", req)
 	}
 

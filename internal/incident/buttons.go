@@ -48,6 +48,8 @@ const (
 	toastExpired     = "This button has expired."
 	toastUnreachable = "Alertmanager is unreachable. Nothing changed."
 	toastUnsilenced  = "Silence removed."
+	toastAcked       = "It's yours."
+	toastReleased    = "Released."
 )
 
 // silenceComment is attached to every silence the relay creates.
@@ -55,6 +57,10 @@ const silenceComment = "Silenced from Telegram via alertmanager-telegram-relay"
 
 // HandleUpdate processes one update from getUpdates.
 func (b *Buttons) HandleUpdate(ctx context.Context, u telegram.Update) {
+	if u.MessageReaction != nil {
+		b.handleReaction(ctx, u.MessageReaction)
+		return
+	}
 	cq := u.CallbackQuery
 	if cq == nil {
 		return // nothing else is requested; drop silently
@@ -130,6 +136,13 @@ func (b *Buttons) press(ctx context.Context, cq *telegram.CallbackQuery) {
 		toast, changed = b.silence(ctx, log, inc, action, cq.From, now)
 	case store.ActionUnsilence:
 		toast, changed = b.unsilence(ctx, log, inc, action)
+	case store.ActionAck:
+		toast, changed = toastAcked, b.ack(log, inc, cq.From, now)
+	case store.ActionRelease:
+		// Any admin may release: they are equally trusted, and someone may
+		// have fallen asleep on it.
+		inc.Ack, toast, changed = nil, toastReleased, true
+		log.Info("incident released")
 	default:
 		toast = toastExpired
 	}
@@ -191,6 +204,55 @@ func (b *Buttons) unsilence(ctx context.Context, log *slog.Logger, inc *store.In
 // refresh re-issues the buttons for inc's new state, updates the message and
 // stores the incident. The Alertmanager change has happened at this point;
 // a failed message update is logged, the stored state stays truthful.
+// ackReactions are the reactions that count as "I'm on it".
+var ackReactions = []string{"👀", "👍"}
+
+// handleReaction treats an admin's 👀 or 👍 on an incident's current
+// message like a press of "I'm on it". The same checks as for buttons
+// apply: allowed chat and allowed user (anonymous reactions have no user
+// and are ignored), and only the relay's own, current messages.
+func (b *Buttons) handleReaction(ctx context.Context, r *telegram.MessageReaction) {
+	p := b.Processor
+	if r.User == nil || !slices.Contains(b.ChatIDs, r.Chat.ID) || !slices.Contains(b.AdminUserIDs, r.User.ID) {
+		p.Metrics.UpdatesRejected.Inc()
+		return
+	}
+	if !slices.ContainsFunc(r.Added(), func(e string) bool { return slices.Contains(ackReactions, e) }) {
+		return
+	}
+	incs, err := p.Store.Incidents(func(inc *store.Incident) bool {
+		return inc.ChatID == r.Chat.ID && inc.MessageID == r.MessageID
+	})
+	if err != nil || len(incs) == 0 {
+		return
+	}
+	defer p.lock(incs[0].GroupKey)()
+	inc, err := p.Store.Incident(incs[0].GroupKey)
+	if err != nil || inc == nil || inc.ChatID != r.Chat.ID || inc.MessageID != r.MessageID {
+		return
+	}
+	var m alertmanager.Message
+	if err := json.Unmarshal(inc.Last, &m); err != nil {
+		return
+	}
+	now := p.Now()
+	log := b.Log.With("incident", groupID(inc.GroupKey), "action", store.ActionAck, "via", "reaction", "user_id", r.User.ID)
+	if b.ack(log, inc, *r.User, now) {
+		b.refresh(ctx, log, inc, &m, now)
+	}
+}
+
+// ack marks inc as handled by user. It changes only the relay's state, never
+// Alertmanager. It reports whether inc changed.
+func (b *Buttons) ack(log *slog.Logger, inc *store.Incident, user telegram.User, now time.Time) bool {
+	if inc.Ack != nil {
+		return false
+	}
+	inc.Ack = &store.Ack{ByID: user.ID, ByName: user.FirstName, At: now}
+	log.Info("incident acknowledged")
+	return true
+}
+
 func (b *Buttons) refresh(ctx context.Context, log *slog.Logger, inc *store.Incident, m *alertmanager.Message, now time.Time) {
 	p := b.Processor
 	stale, _, err := p.issueButtons(inc, now, true)
@@ -201,6 +263,7 @@ func (b *Buttons) refresh(ctx context.Context, log *slog.Logger, inc *store.Inci
 	if err := j.update(inc, p.view(inc, m, nil), true); err != nil {
 		log.Warn("updating message after button press failed", "err", err)
 	}
+	j.react(inc, false)
 	if err := p.Store.PutIncident(inc); err != nil {
 		log.Error("storing incident failed", "err", err)
 		return

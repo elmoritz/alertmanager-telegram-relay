@@ -9,3 +9,5 @@ since <tg-time unix="1772427360" format="wt">Mon 05:56 CET</tg-time> (<tg-time u
 ➕ 1 more firing: &lt;script&gt;alert(1)&lt;/script&gt; &amp;amp; already-escaped &amp;lt;b&amp;gt;
 ---
 ⏰ still firing, 2h 22m
+---
+🚨 still unacknowledged after 2h 22m

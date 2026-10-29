@@ -60,6 +60,29 @@ type Incident struct {
 	ButtonsIssued time.Time `json:"buttonsIssued,omitzero"`
 	// Silence is the silence made through this message's buttons, if any.
 	Silence *Silence `json:"silence,omitempty"`
+	// Ack is who said "I'm on it", if anyone.
+	Ack *Ack `json:"ack,omitempty"`
+	// Escalations counts the escalation replies sent so far.
+	Escalations int `json:"escalations,omitempty"`
+	// Reaction is the bot's current reaction on the message ("" for none).
+	Reaction string `json:"reaction,omitempty"`
+}
+
+// Ack is an "I'm on it" from an admin. It changes only the relay's state.
+type Ack struct {
+	ByID   int64     `json:"byId"`
+	ByName string    `json:"byName"`
+	At     time.Time `json:"at"`
+}
+
+// HasButtonKind reports whether the message's keyboard has a button of kind.
+func (inc *Incident) HasButtonKind(kind string) bool {
+	for _, b := range inc.Buttons {
+		if b.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // ButtonRef is a callback button on an incident's keyboard.
@@ -100,6 +123,8 @@ type Silence struct {
 const (
 	ActionSilence   = "silence"
 	ActionUnsilence = "unsilence"
+	ActionAck       = "ack"
+	ActionRelease   = "release"
 )
 
 // Action is what a callback button does. Buttons carry only the action's
@@ -236,23 +261,24 @@ func (s *Store) ExpireIncidents(cutoff time.Time) (int, error) {
 	return n, nil
 }
 
-// SilencedIncidents returns the group keys of open incidents with a silence
-// made from Telegram.
-func (s *Store) SilencedIncidents() ([]string, error) {
-	var keys []string
+// Incidents returns the open incidents for which match is true. The
+// returned copies may be stale by the time they are used: re-read an
+// incident under its group's lock before changing it.
+func (s *Store) Incidents(match func(*Incident) bool) ([]*Incident, error) {
+	var out []*Incident
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketIncidents).ForEach(func(_, v []byte) error {
-			var inc Incident
-			if json.Unmarshal(v, &inc) == nil && inc.Silence != nil {
-				keys = append(keys, inc.GroupKey)
+			inc := &Incident{}
+			if json.Unmarshal(v, inc) == nil && match(inc) {
+				out = append(out, inc)
 			}
 			return nil
 		})
 	})
 	if err != nil {
-		return nil, fmt.Errorf("listing silenced incidents: %w", err)
+		return nil, fmt.Errorf("listing incidents: %w", err)
 	}
-	return keys, nil
+	return out, nil
 }
 
 // CountIncidents returns the number of open incidents.
