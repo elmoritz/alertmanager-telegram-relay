@@ -48,8 +48,12 @@ responses become hand-written fixtures so the fakes stay faithful.
 export RELAY_LIVE_TELEGRAM_BOT_TOKEN_FILE=~/relay-live/secrets/telegram_bot_token
 export RELAY_LIVE_CHAT_ID=-1001234567890       # your test chat
 export RELAY_LIVE_ALERTMANAGER_URL=http://127.0.0.1:9093
-go test -tags=live -count=1 -run Live -v ./...
+go test -tags=live -count=1 -p 1 -run Live -v ./...
 ```
+
+`-p 1` runs one package at a time: the tests space their messages to stay
+under Telegram's limit of about 20 messages a minute per group, which only
+works if they do not run side by side. A full run takes a few minutes.
 
 The relay must **not** be running with the same token: two consumers of
 `getUpdates` make both fail with 409. Each group of tests skips unless its
@@ -60,7 +64,7 @@ variables are set.
 | `TestLiveGetMe`, `TestLiveWrongTokenIsRedacted` | the token works; a rejected token does not appear in the error |
 | `TestLiveMessageLifecycle` | send with both button kinds, edit to identical content (must not fail), remove the keyboard, silent reply, reply to a missing message |
 | `TestLiveEditMissingMessageIsGone` | the error text `IsMessageGone` relies on |
-| `TestLiveFormatErrors`, `TestLiveLengthLimit` | the error texts `IsFormatError` relies on; the limit is 4096 UTF-16 units after entity parsing, as `render.Len` counts |
+| `TestLiveFormatErrors`, `TestLiveLengthLimit` | the error texts `IsFormatError` relies on; the limit is 4096 code points after entity parsing, as `render.Len` counts |
 | `TestLiveButtonErrors` | rejected URLs and oversized callback data are recognised by `IsButtonError` (the log shows which ones Telegram accepts) |
 | `TestLiveGetUpdates` | long polling works: no webhook set, no other consumer |
 | `TestLiveGoldenFilesAreAccepted`, `TestLiveLongestMessagesAreAccepted` | Telegram accepts every golden file (`tg-time`, expandable blockquotes) and the longest messages the length control produces |

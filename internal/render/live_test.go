@@ -21,9 +21,13 @@ import (
 
 func liveSend(t *testing.T, tg *telegram.Client, chat int64, text string) {
 	t.Helper()
-	c, cancel := context.WithTimeout(context.Background(), time.Minute)
+	c, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if _, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text}); err != nil {
+	err := livetest.Do(t, func() error {
+		_, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text})
+		return err
+	})
+	if err != nil {
 		t.Fatalf("Len %d: %v", Len(text), err)
 	}
 }

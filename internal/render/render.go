@@ -18,13 +18,13 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
 )
 
-// MaxLen is Telegram's message length limit, in UTF-16 code units after
-// entity parsing.
+// MaxLen is Telegram's message length limit, in Unicode code points after
+// entity parsing (checked against the live API: 4096 emoji fit, 4097 do not).
 const MaxLen = 4096
 
 //go:embed default.tmpl
@@ -232,13 +232,13 @@ func (r *Renderer) execute(name string, d Data) (string, error) {
 
 var tagRE = regexp.MustCompile(`<[^>]*>`)
 
-// Len returns the length Telegram counts for an HTML message: UTF-16 code
-// units of the text after tags are removed and entities decoded. Every "<"
+// Len returns the length Telegram counts for an HTML message: code points of
+// the text after tags are removed and entities decoded. Every "<"
 // in rendered output is either a tag from the relay's own template or
 // escaped, so stripping tags this way is exact.
 func Len(s string) int {
 	text := html.UnescapeString(tagRE.ReplaceAllString(s, ""))
-	return len(utf16.Encode([]rune(strings.TrimSpace(text))))
+	return utf8.RuneCountInString(strings.TrimSpace(text))
 }
 
 func (r *Renderer) funcs() template.FuncMap {

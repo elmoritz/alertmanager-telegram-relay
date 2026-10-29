@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -108,7 +109,7 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		return &Error{Method: method, Code: resp.StatusCode, Description: "unreadable response: " + http.StatusText(resp.StatusCode)}
 	}
 	if !r.OK {
-		e := &Error{Method: method, Code: r.ErrorCode, Description: c.redact(r.Description)}
+		e := &Error{Method: method, Code: r.ErrorCode, Description: c.redact(stripQuoted(r.Description))}
 		if e.Code == 0 {
 			e.Code = resp.StatusCode
 		}
@@ -149,6 +150,17 @@ func (c *Client) transportError(req *http.Request, err error) string {
 		msg = strings.ReplaceAll(msg, u, "<url>")
 	}
 	return c.redact(msg)
+}
+
+// quotedRE matches single-quoted values in Bot API error descriptions, which
+// can be alert content: a rejected button is reported as "inline keyboard
+// button URL '<url>' is invalid".
+var quotedRE = regexp.MustCompile(`'[^']*'`)
+
+// stripQuoted removes quoted values from an error description, so logging an
+// error does not log alert content.
+func stripQuoted(s string) string {
+	return quotedRE.ReplaceAllString(s, "'…'")
 }
 
 // redact removes the token from s in every encoding a URL may carry it in.

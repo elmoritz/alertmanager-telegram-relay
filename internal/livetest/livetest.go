@@ -14,7 +14,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/telegram"
 )
@@ -56,6 +58,34 @@ func Telegram(t *testing.T) (*telegram.Client, int64) {
 		t.Fatal("RELAY_LIVE_CHAT_ID is not an integer")
 	}
 	return telegram.New(telegram.DefaultBaseURL, token), chat
+}
+
+// Telegram allows about 20 messages a minute in a group; the tests stay below
+// that and wait out a 429 when they hit it anyway.
+const spacing = 3500 * time.Millisecond
+
+var (
+	mu   sync.Mutex
+	last time.Time
+)
+
+// Do runs a Bot API call that posts to the test chat, spaced out from the
+// previous one and repeated after the wait a 429 asks for.
+func Do(t *testing.T, call func() error) error {
+	t.Helper()
+	mu.Lock()
+	defer mu.Unlock()
+	for {
+		time.Sleep(time.Until(last.Add(spacing)))
+		err := call()
+		last = time.Now()
+		wait := telegram.RetryAfter(err)
+		if wait == 0 {
+			return err
+		}
+		t.Logf("rate limited, waiting %s", wait)
+		time.Sleep(wait)
+	}
 }
 
 // Interactive skips the test unless RELAY_LIVE_INTERACTIVE=1: it needs

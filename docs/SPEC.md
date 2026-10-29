@@ -148,7 +148,8 @@ alert with how long it lasted ("after 2h 5m").
 - Severity emoji from the `severity` label (common label, else the most severe
   firing alert): `critical` 🔥, `warning` ⚠️, anything else ℹ️. Configurable by
   redefining `severity_emoji`.
-- Length: Telegram counts 4096 UTF-16 code units after entity parsing; the
+- Length: Telegram counts 4096 Unicode code points after entity parsing (an
+  emoji outside the BMP counts once; checked against the live API); the
   relay measures the same way. If a message is too long, it re-renders with
   stepwise smaller `.Limits` (alerts listed 6 → 3 → 1, description 1500 → 500
   → 200 → hidden, single values 200 → 60 characters) until it fits. If even

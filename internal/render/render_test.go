@@ -202,7 +202,7 @@ func TestLen(t *testing.T) {
 		"<b>ab</b>":    2,
 		"a &amp; b":    5,
 		"&#39;x&#34;":  3,
-		"😀":            2, // surrogate pair
+		"😀":            1, // one code point, although two UTF-16 units
 		"  <s>x</s>\n": 1,
 		`<tg-time unix="1" format="r">2h ago</tg-time>`: 6,
 	} {

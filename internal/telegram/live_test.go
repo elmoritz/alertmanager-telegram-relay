@@ -23,9 +23,24 @@ import (
 const unknownMessageID = 2_000_000_000
 
 func ctx(t *testing.T) context.Context {
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	c, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	t.Cleanup(cancel)
 	return c
+}
+
+func send(t *testing.T, tg *telegram.Client, c context.Context, m telegram.Message) (int, error) {
+	t.Helper()
+	var id int
+	err := livetest.Do(t, func() (err error) {
+		id, err = tg.SendMessage(c, m)
+		return err
+	})
+	return id, err
+}
+
+func edit(t *testing.T, tg *telegram.Client, c context.Context, chat int64, id int, text string, kb *telegram.Keyboard) error {
+	t.Helper()
+	return livetest.Do(t, func() error { return tg.EditMessageText(c, chat, id, text, kb) })
 }
 
 func randomData(t *testing.T) string {
@@ -78,7 +93,7 @@ func TestLiveMessageLifecycle(t *testing.T) {
 	}}
 	text := livetest.Prefix + ": lifecycle\n🔥 <b>HostDown</b> · server-1\n<blockquote expandable>line 1\nline 2</blockquote>"
 
-	id, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text, Keyboard: kb})
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: text, Keyboard: kb})
 	if err != nil {
 		t.Fatalf("send with keyboard: %v", err)
 	}
@@ -87,28 +102,28 @@ func TestLiveMessageLifecycle(t *testing.T) {
 	}
 
 	t.Run("edit to identical content is not an error", func(t *testing.T) {
-		if err := tg.EditMessageText(c, chat, id, text, kb); err != nil {
+		if err := edit(t, tg, c, chat, id, text, kb); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("edit removing the keyboard", func(t *testing.T) {
-		if err := tg.EditMessageText(c, chat, id, text+"\n✅ resolved", nil); err != nil {
+		if err := edit(t, tg, c, chat, id, text+"\n✅ resolved", nil); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("edit without a keyboard again is not an error", func(t *testing.T) {
-		if err := tg.EditMessageText(c, chat, id, text+"\n✅ resolved", nil); err != nil {
+		if err := edit(t, tg, c, chat, id, text+"\n✅ resolved", nil); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("silent reply", func(t *testing.T) {
-		_, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": silent reply", ReplyTo: id, Silent: true})
+		_, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": silent reply", ReplyTo: id, Silent: true})
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("reply to a missing message is sent anyway", func(t *testing.T) {
-		_, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": reply to a missing message", ReplyTo: unknownMessageID})
+		_, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": reply to a missing message", ReplyTo: unknownMessageID})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,14 +148,14 @@ func TestLiveFormatErrors(t *testing.T) {
 	tg, chat := livetest.Telegram(t)
 	c := ctx(t)
 	for name, text := range map[string]string{
-		"unclosed tag":                   livetest.Prefix + ": <b>unclosed",
-		"unsupported tag":                livetest.Prefix + ": <div>x</div>",
-		"bare ampersand":                 livetest.Prefix + ": a & b <x",
-		"4097 characters":                strings.Repeat("a", 4097),
-		"2049 emoji (4098 UTF-16 units)": strings.Repeat("😀", 2049),
+		"unclosed tag":    livetest.Prefix + ": <b>unclosed",
+		"unsupported tag": livetest.Prefix + ": <div>x</div>",
+		"bare ampersand":  livetest.Prefix + ": a & b <x",
+		"4097 characters": strings.Repeat("a", 4097),
+		"4097 emoji":      strings.Repeat("😀", 4097),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text})
+			_, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: text})
 			if err == nil {
 				t.Fatal("Telegram accepted it")
 			}
@@ -151,18 +166,19 @@ func TestLiveFormatErrors(t *testing.T) {
 	}
 }
 
-// The length limit is 4096 UTF-16 code units of text after entity parsing,
-// which is what render.Len counts.
+// The length limit is 4096 code points of text after entity parsing, which is
+// what render.Len counts. An emoji outside the BMP counts once, although it is
+// two UTF-16 units.
 func TestLiveLengthLimit(t *testing.T) {
 	tg, chat := livetest.Telegram(t)
 	c := ctx(t)
 	for name, text := range map[string]string{
-		"4096 characters":                strings.Repeat("a", 4096),
-		"2048 emoji (4096 UTF-16 units)": strings.Repeat("😀", 2048),
-		"4096 characters plus markup":    "<b>" + strings.Repeat("&amp;", 4096) + "</b>",
+		"4096 characters":             strings.Repeat("a", 4096),
+		"4096 emoji":                  strings.Repeat("😀", 4096),
+		"4096 characters plus markup": "<b>" + strings.Repeat("&amp;", 4096) + "</b>",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text}); err != nil {
+			if _, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: text}); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -182,7 +198,7 @@ func TestLiveButtonErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			kb := &telegram.Keyboard{Rows: [][]telegram.Button{{b}}}
-			_, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": button " + name, Keyboard: kb})
+			_, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": button " + name, Keyboard: kb})
 			if err == nil {
 				t.Logf("Telegram accepted it")
 				return
@@ -241,7 +257,7 @@ func TestLiveCallbackQuery(t *testing.T) {
 	data := randomData(t)
 	text := livetest.Prefix + ": press the button within 90 seconds"
 	kb := &telegram.Keyboard{Rows: [][]telegram.Button{{{Text: "👉 Press me", Data: data}}}}
-	id, err := tg.SendMessage(c, telegram.Message{ChatID: chat, Text: text, Keyboard: kb})
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: text, Keyboard: kb})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +287,7 @@ func TestLiveCallbackQuery(t *testing.T) {
 			if err := tg.AnswerCallbackQuery(c, cq.ID, "Live test OK."); err != nil {
 				t.Errorf("answer: %v", err)
 			}
-			if err := tg.EditMessageText(c, chat, id, livetest.Prefix+": button pressed ✅", nil); err != nil {
+			if err := edit(t, tg, c, chat, id, livetest.Prefix+": button pressed ✅", nil); err != nil {
 				t.Errorf("edit after press: %v", err)
 			}
 			t.Logf("press by user %d in chat %d", cq.From.ID, cq.Message.Chat.ID)

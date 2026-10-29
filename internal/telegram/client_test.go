@@ -85,6 +85,24 @@ func TestAPIErrorDescriptionIsRedacted(t *testing.T) {
 	}
 }
 
+// Telegram quotes rejected button URLs, which come from alert annotations.
+// Hand-written from the shape of a real answer.
+func TestAPIErrorDescriptionDropsQuotedValues(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"ok":false,"error_code":400,"description":"Bad Request: inline keyboard button URL 'http://grafana:3000/d/abc?var-host=server-1' is invalid: Wrong HTTP URL"}`)
+	}))
+	defer srv.Close()
+
+	_, err := New(srv.URL, testToken).SendMessage(context.Background(), Message{ChatID: 1, Text: "x"})
+	if strings.Contains(err.Error(), "grafana") || strings.Contains(err.Error(), "server-1") {
+		t.Errorf("error contains the URL: %v", err)
+	}
+	if !IsButtonError(err) {
+		t.Errorf("IsButtonError = false for %v", err)
+	}
+}
+
 // fake is a minimal Bot API: it records requests and answers with the
 // next queued response.
 type fake struct {
