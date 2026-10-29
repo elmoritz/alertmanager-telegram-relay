@@ -19,8 +19,11 @@ const EscalationCheckInterval = time.Minute
 const maxEscalations = 3
 
 // CheckEscalations sends a loud reply (#5) to each critical incident that is
-// still firing after another EscalateAfter without anyone saying "I'm on it"
-// or silencing it, up to maxEscalations times. Quiet severities and quiet
+// still firing EscalateAfter after it opened, or after its last escalation,
+// without anyone saying "I'm on it" or silencing it, up to maxEscalations
+// times. Counting from the last escalation, not from the opening, keeps
+// incidents that were already old (relay downtime, ESCALATE_AFTER newly
+// set) from escalating three times in three minutes. Quiet severities and quiet
 // hours do not apply: only critical incidents escalate, and critical always
 // rings.
 func (p *Processor) CheckEscalations(ctx context.Context) {
@@ -39,8 +42,12 @@ func (p *Processor) CheckEscalations(ctx context.Context) {
 }
 
 func (p *Processor) dueForEscalation(inc *store.Incident, now time.Time) bool {
+	since := inc.OpenedAt
+	if inc.LastEscalation.After(since) {
+		since = inc.LastEscalation
+	}
 	return inc.Ack == nil && inc.Silence == nil && inc.Escalations < maxEscalations &&
-		now.Sub(inc.OpenedAt) >= time.Duration(inc.Escalations+1)*p.EscalateAfter
+		now.Sub(since) >= p.EscalateAfter
 }
 
 func (p *Processor) escalate(ctx context.Context, groupKey string) {
@@ -59,8 +66,18 @@ func (p *Processor) escalate(ctx context.Context, groupKey string) {
 	}
 	log := p.Log.With("incident", groupID(groupKey), "action", "escalate")
 	j := &job{p: p, ctx: ctx, log: log, deadline: now.Add(30 * time.Second), chatID: inc.ChatID, threadID: inc.ThreadID}
-	j.reply(inc.MessageID, p.Render.Escalation, p.data(inc, &m, nil), false)
+	text, err := p.Render.Escalation(p.data(inc, &m, nil))
+	if err != nil {
+		p.Metrics.TemplateErrors.Inc()
+		log.Error("escalation template failed, using fallback", "err", err)
+	}
+	if id, err := j.send(view{text: text, minimal: text}, inc.MessageID, false); err != nil {
+		log.Warn("escalation not delivered", "err", err)
+	} else {
+		inc.EscalationMessageIDs = append(inc.EscalationMessageIDs, id)
+	}
 	inc.Escalations++
+	inc.LastEscalation = now
 	if err := p.Store.PutIncident(inc); err != nil {
 		log.Error("storing incident failed", "err", err)
 	}

@@ -62,8 +62,12 @@ type Incident struct {
 	Silence *Silence `json:"silence,omitempty"`
 	// Ack is who said "I'm on it", if anyone.
 	Ack *Ack `json:"ack,omitempty"`
-	// Escalations counts the escalation replies sent so far.
-	Escalations int `json:"escalations,omitempty"`
+	// Escalations counts the escalation replies sent so far; LastEscalation
+	// is when the latest went out, and EscalationMessageIDs are their
+	// messages, on which a reaction acknowledges like one on the incident.
+	Escalations          int       `json:"escalations,omitempty"`
+	LastEscalation       time.Time `json:"lastEscalation,omitzero"`
+	EscalationMessageIDs []int     `json:"escalationMessageIds,omitempty"`
 	// Reaction is the bot's current reaction on the message ("" for none).
 	Reaction string `json:"reaction,omitempty"`
 }

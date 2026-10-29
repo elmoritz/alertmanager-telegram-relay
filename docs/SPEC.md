@@ -265,8 +265,12 @@ Inline keyboard under every firing message:
 - With `ESCALATE_AFTER` set (e.g. `15m`, at least `1m`; default off), a
   **critical** incident that is still firing, not acknowledged and not
   silenced gets a reply with sound, "🚨 still unacknowledged after 15m",
-  after each further `ESCALATE_AFTER` since it opened, at most 3 times
-  (#5). Quiet severities and quiet hours do not apply: critical always
+  `ESCALATE_AFTER` after it opened and again `ESCALATE_AFTER` after each
+  escalation, at most 3 times (#5). Counting from the last escalation keeps
+  an incident that is already old (relay downtime, `ESCALATE_AFTER` newly
+  set) from escalating three times in a row.
+- A 👀 or 👍 from an admin on an escalation reply acknowledges the incident,
+  like one on the incident's message. Quiet severities and quiet hours do not apply: critical always
   rings. Checked every minute; counted in `relay_escalations_total`.
 - Direct messages to admins (also proposed in #5) are not implemented: they
   would carry alert text outside the allowed chats and need a change to

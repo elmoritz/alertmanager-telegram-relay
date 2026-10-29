@@ -8,6 +8,7 @@ import (
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/route"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/telegram"
 )
 
 func critical(alerts ...string) *alertmanager.Message {
@@ -79,5 +80,40 @@ func TestOnlyCriticalEscalates(t *testing.T) {
 	e.handle(m)
 	if calls := e.escalate(time.Hour); len(calls) > 0 {
 		t.Errorf("escalated with ESCALATE_AFTER unset: %v", calls)
+	}
+}
+
+// An incident that is already old when escalation starts (relay downtime,
+// ESCALATE_AFTER newly set) escalates once, then waits the full interval
+// again: no burst of three pings in three minutes.
+func TestOldIncidentDoesNotBurst(t *testing.T) {
+	e := newButtonEnv(t)
+	e.handle(critical("a"))
+	e.now = e.now.Add(time.Hour)
+	e.proc.EscalateAfter = 2 * time.Minute
+
+	expectCalls(t, e.escalate(0), "sendMessage(reply #1)")
+	if calls := e.escalate(time.Minute); len(calls) > 0 {
+		t.Fatalf("escalated again after one minute: %v", calls)
+	}
+	expectCalls(t, e.escalate(time.Minute), "sendMessage(reply #1)") // the full 2m after the first
+}
+
+// A 👀 or 👍 on an escalation reply acknowledges like one on the incident.
+func TestReactionOnEscalationAcks(t *testing.T) {
+	e := newButtonEnv(t)
+	e.proc.EscalateAfter = 15 * time.Minute
+	e.handle(critical("a"))
+	expectCalls(t, e.escalate(15*time.Minute), "sendMessage(reply #1)") // message #2
+
+	alice := &telegram.User{ID: admin, FirstName: "Alice"}
+	e.buttons.HandleUpdate(context.Background(), reaction(chat, 2, alice, nil, "👍"))
+	calls := e.tg.take()
+	expectCalls(t, calls, "editMessageText(#1)")
+	if !strings.Contains(calls[0].Text, "👀 Alice is on it") {
+		t.Errorf("text = %q", calls[0].Text)
+	}
+	if calls := e.escalate(time.Hour); len(calls) > 0 {
+		t.Errorf("escalated after the acknowledgement: %v", calls)
 	}
 }

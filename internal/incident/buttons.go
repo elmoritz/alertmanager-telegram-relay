@@ -208,7 +208,8 @@ func (b *Buttons) unsilence(ctx context.Context, log *slog.Logger, inc *store.In
 var ackReactions = []string{"👀", "👍"}
 
 // handleReaction treats an admin's 👀 or 👍 on an incident's current
-// message like a press of "I'm on it". The same checks as for buttons
+// message, or on one of its escalation replies, like a press of "I'm on
+// it". The same checks as for buttons
 // apply: allowed chat and allowed user (anonymous reactions have no user
 // and are ignored), and only the relay's own, current messages.
 func (b *Buttons) handleReaction(ctx context.Context, r *telegram.MessageReaction) {
@@ -220,15 +221,16 @@ func (b *Buttons) handleReaction(ctx context.Context, r *telegram.MessageReactio
 	if !slices.ContainsFunc(r.Added(), func(e string) bool { return slices.Contains(ackReactions, e) }) {
 		return
 	}
-	incs, err := p.Store.Incidents(func(inc *store.Incident) bool {
-		return inc.ChatID == r.Chat.ID && inc.MessageID == r.MessageID
-	})
+	onIncident := func(inc *store.Incident) bool {
+		return inc.ChatID == r.Chat.ID && (inc.MessageID == r.MessageID || slices.Contains(inc.EscalationMessageIDs, r.MessageID))
+	}
+	incs, err := p.Store.Incidents(onIncident)
 	if err != nil || len(incs) == 0 {
 		return
 	}
 	defer p.lock(incs[0].GroupKey)()
 	inc, err := p.Store.Incident(incs[0].GroupKey)
-	if err != nil || inc == nil || inc.ChatID != r.Chat.ID || inc.MessageID != r.MessageID {
+	if err != nil || inc == nil || !onIncident(inc) {
 		return
 	}
 	var m alertmanager.Message
