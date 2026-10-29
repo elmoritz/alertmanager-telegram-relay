@@ -52,6 +52,7 @@ type Config struct {
 
 	GrafanaURL       string
 	ShowSourceButton bool
+	ProtectContent   bool
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -170,6 +171,9 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 	if c.ShowSourceButton, err = strconv.ParseBool(str("SHOW_SOURCE_BUTTON", "false")); err != nil {
 		fail(fmt.Errorf("SHOW_SOURCE_BUTTON: %w", err))
 	}
+	if c.ProtectContent, err = strconv.ParseBool(str("PROTECT_CONTENT", "false")); err != nil {
+		fail(fmt.Errorf("PROTECT_CONTENT: %w", err))
+	}
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -281,6 +285,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Any("silence_durations", durationStrings(c.SilenceDurations)),
 		slog.Bool("grafana_url", c.GrafanaURL != ""),
 		slog.Bool("show_source_button", c.ShowSourceButton),
+		slog.Bool("protect_content", c.ProtectContent),
 	)
 }
 

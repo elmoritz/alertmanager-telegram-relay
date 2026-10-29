@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 and v0.2 implemented** (see §13); later milestones are design. This
+Status: **v0.1 implemented, v0.2 in progress** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -84,7 +84,7 @@ firing notification until all of its alerts are resolved.
 | Same incident, alert set changed (alert added) | `editMessageText` on the original, AND a short reply to it ("+1 firing: …") so the change is noticed | yes, the reply |
 | Same incident, alert set changed (some resolved, some still firing) | `editMessageText` only | no |
 | Same incident, nothing changed (Alertmanager `repeat_interval` reminder) | short reply to the original: "still firing, 4 h" | configurable: `REMINDERS=reply\|silent\|off` (default `reply`) |
-| Group resolved | `editMessageText` to the resolved layout, remove buttons; close incident | no; optional silent reply (`RESOLVE_REPLY=true`) |
+| Group resolved | `editMessageText` to the resolved layout; the keyboard becomes one disabled button "✅ Resolved after 2h 5m"; close incident | no; optional silent reply (`RESOLVE_REPLY=true`) |
 | Group resolved, but no open incident (state lost or expired) | `sendMessage` with the resolved layout | no (silent) |
 | Original message can no longer be edited or was deleted | fall back to a new message; store the new `message_id` | yes (no, for a resolve) |
 
@@ -122,7 +122,9 @@ server-1 has not answered for 5 minutes      ← summary, one line per alert (ma
 since Mon 04:56 (2h 23m ago)                 ← <tg-time> "wt" and "r", so it shows in the reader's zone
 
 ▸ description, collapsed                     ← <blockquote expandable>, first alert only, clipped
-[🔕 1h] [🔕 24h] [📈 Grafana] [📖 Runbook]    ← inline keyboard (from v0.2)
+[🔕 1h] [🔕 24h]                             ← inline keyboard (§5)
+[📈 Grafana] [📖 Runbook]
+[📋 Copy command]
 ```
 
 The summary line is the alert's `summary` annotation, else its `instance`
@@ -131,7 +133,9 @@ else `message`. The text inside `<tg-time>` is a fallback for clients without
 date-time entities, formatted in `TIMEZONE`.
 
 Resolved: `✅ HostDown · server-1 resolved`, then one struck-through line per
-alert with how long it lasted ("after 2h 5m").
+alert with how long it lasted ("after 2h 5m"), and a single disabled button
+[✅ Resolved after 2h 5m] (from the first alert's start to the last alert's
+end).
 
 - Templates are Go `html/template` files. A default ships in the binary
   (`internal/render/default.tmpl`); a user-supplied file (`TEMPLATE_FILE`) can
@@ -164,13 +168,19 @@ Inline keyboard under every firing message:
 | Button | Kind | Effect |
 |---|---|---|
 | 🔕 1h, 🔕 24h | callback | Create a silence for this incident's group labels (see SECURITY.md §3). Message is edited to show "🔕 silenced until 18:00 by Alice" and the button row becomes [↩️ Unsilence]. |
-| ↩️ Unsilence | callback | Expire that silence (`DELETE /api/v2/silence/{id}`). Row returns to the silence buttons. |
+| 🔕 Silenced until 18:00 by Alice | disabled | Shown above ↩️ Unsilence while a silence made from Telegram is active. Time in `TIMEZONE` ("Tue 18:00" on another day), name clipped to 32 characters. Cannot be pressed. |
+| ↩️ Unsilence | callback, highlighted | Expire that silence (`DELETE /api/v2/silence/{id}`). Row returns to the silence buttons. |
 | 📈 Grafana | URL | Opens a dashboard link from the alert's `dashboard_url` annotation, else `GRAFANA_URL` if set. Hidden if neither exists. |
 | 📖 Runbook | URL | From the `runbook_url` annotation. Hidden if absent. |
 | 🔗 Source | URL | `generatorURL` of the first alert, if `SHOW_SOURCE_BUTTON=true` (default off: it is usually an internal Prometheus URL). |
+| 📋 Copy command | copy | Copies the `copy_command` annotation to the clipboard, in the client, with no callback to the relay. Hidden if absent or over 256 characters (Telegram's limit; a clipped command would be a different command). The text is whatever the alert rule's author wrote: the button runs nothing, but it is not a trusted command source. |
 
-- Layout: callback buttons in the first row, link buttons in the second.
-  Resolved messages have no keyboard.
+- Layout: the disabled silence status (if any), the callback buttons, the
+  link buttons, the copy button, each in its own row. Resolved messages keep
+  only the disabled [✅ Resolved after …] button. Disabled buttons are sent
+  without any action: Telegram silently drops `disabled` from a button that
+  also has one, which would make it pressable. ↩️ Unsilence uses the
+  `primary` style; the other buttons keep the client's default look.
 - Silence buttons are offered only when `ALERTMANAGER_URL` is set and the
   group has group labels. The silence's matchers are all of the group labels,
   exact equality, in sorted order; `createdBy` is `telegram:<user id>` and the
@@ -206,9 +216,9 @@ Inline keyboard under every firing message:
   silences made through its own buttons.
 - Link buttons use only `http(s)` URLs. `dashboard_url` and `runbook_url` are
   taken from the first firing alert that has them, else the common
-  annotations. Telegram rejects some URLs (e.g. host names without a dot); the
-  message is then sent without the link row, and if even that fails, as the
-  minimal message.
+  annotations; `copy_command` likewise. Telegram rejects some URLs (e.g. host
+  names without a dot); the message is then sent without the link and copy
+  rows, and if even that fails, as the minimal message.
 - Notifications and button presses for the same group are processed one at a
   time, so the message is never edited from two sides at once.
 
@@ -279,6 +289,7 @@ names the variable but never echoes its value.
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
 | `SHOW_SOURCE_BUTTON` | v0.2 | | `false` | 🔗 Source button with the first alert's `generatorURL` |
+| `PROTECT_CONTENT` | v0.2 | | `false` | Send every message with `protect_content`, so alert messages cannot be forwarded or saved (this also blocks forwarding to yourself). Link previews are always off. |
 | `INCIDENT_TTL` | v0.1 | | `720h` | Forget unresolved incidents this long after their last notification |
 | `LOG_LEVEL` | v0.1 | | `info` | `debug`, `info`, `warn`, `error`; `debug` logs IDs, never secrets |
 
@@ -331,10 +342,16 @@ names the variable but never echoes its value.
    allowlists, default template with length control, incidents in bbolt,
    send/edit/reply lifecycle (§4), healthz/metrics, Dockerfile, CI, release
    workflow, examples.
-2. **v0.2, buttons (done):** long polling, callback handling,
-   silence/unsilence, Grafana/runbook URL buttons. Live check passed.
+2. **v0.2, buttons (in progress):** long polling, callback handling,
+   silence/unsilence, Grafana/runbook URL buttons (released as v0.2.0, live
+   check passed); `PROTECT_CONTENT`, coloured and disabled buttons, copy
+   button (v0.2.1, issues #1–#4).
 3. **v0.3, routing:** quiet severities, multiple chats and forum topics.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
+
+A milestone's scope is the list above **plus the open issues in the GitHub
+milestone of the same name**; it is done when both are, and the live check
+has passed.
 
 Each milestone ships with tests: unit tests for rendering (golden files built
 from hand-written fixtures), the incident state machine and authorisation;

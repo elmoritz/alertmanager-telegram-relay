@@ -6,12 +6,13 @@ built-in Telegram receiver cannot do:
 - **One message per incident.** When the alert resolves, the original message
   turns from 🔥 to ✅ instead of a second message arriving.
 - **Buttons.** Silence an alert for 1 h or 24 h straight from Telegram, undo it,
-  open the dashboard or runbook.
+  open the dashboard or runbook, copy a suggested command. A resolved message
+  keeps a greyed-out "✅ Resolved after 2h 5m".
 - **Made for phones.** Host and age in the headline, long descriptions
   collapsed, never over Telegram's length limit.
 
 > **Status:** v0.2: one message per incident, edited on resolve, with
-> silence/unsilence and Grafana/runbook buttons. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> silence/unsilence, Grafana/runbook and copy buttons. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
 > and roadmap, and [examples/](examples/) for a Compose setup, the
 > Alertmanager receiver and the fallback alerts.
 

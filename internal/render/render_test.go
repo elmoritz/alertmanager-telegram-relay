@@ -212,6 +212,19 @@ func TestStartInTheFuture(t *testing.T) {
 	}
 }
 
+func TestShortTime(t *testing.T) {
+	r := renderer(t, "") // Europe/Berlin; testNow is Mon 2 Mar 2026 08:19 CET
+	for in, want := range map[time.Time]string{
+		testNow.Add(time.Hour):          "09:19",
+		testNow.Add(24 * time.Hour):     "Tue 08:19",
+		testNow.Add(7 * 24 * time.Hour): "9 Mar 08:19",
+	} {
+		if got := r.ShortTime(in); got != want {
+			t.Errorf("ShortTime(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestLen(t *testing.T) {
 	for s, want := range map[string]int{
 		"<b>ab</b>":    2,

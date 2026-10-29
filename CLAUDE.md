@@ -10,7 +10,8 @@ alerts resolve, and offers inline buttons to silence alerts.
    seems to need breaking one, stop and ask instead.
 2. `docs/SPEC.md`: what the relay does. It is the source of truth; update it in
    the same change as the behaviour. Pick up work at the first unfinished
-   milestone in SPEC §13.
+   milestone in SPEC §13, including the open issues in the GitHub milestone
+   of the same name.
 
 ## This repository is public
 

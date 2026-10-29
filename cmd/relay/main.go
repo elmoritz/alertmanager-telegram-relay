@@ -80,6 +80,7 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 		func() float64 { n, _ := st.CountIncidents(); return float64(n) },
 	)
 	tg := telegram.New(telegramURL, cfg.BotToken)
+	tg.ProtectContent = cfg.ProtectContent
 	tg.OnCall = func(method, result string) { m.TelegramRequests.WithLabelValues(method, result).Inc() }
 
 	if err := checkBot(tg, log); err != nil {

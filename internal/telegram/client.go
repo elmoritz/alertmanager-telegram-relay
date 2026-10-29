@@ -32,6 +32,10 @@ type Client struct {
 	// OnCall, if set, is called after every request with the method name and
 	// a bounded result: "ok", "error", "ratelimited" or "network".
 	OnCall func(method, result string)
+
+	// ProtectContent sends every message with protect_content, so it cannot
+	// be forwarded or saved.
+	ProtectContent bool
 }
 
 // New returns a client for the given API base URL (DefaultBaseURL, or a test
@@ -206,12 +210,67 @@ type Keyboard struct {
 	Rows [][]Button `json:"inline_keyboard"`
 }
 
-// Button is an inline keyboard button: either a callback button (Data) or a
-// link (URL).
+// Button styles (Bot API 9.4); no style is the client's default look.
+const (
+	StyleDanger  = "danger"
+	StyleSuccess = "success"
+	StylePrimary = "primary"
+)
+
+// Button is an inline keyboard button: a callback button (Data), a link
+// (URL), a copy-to-clipboard button (CopyText) or, if Disabled, a label that
+// does nothing.
 type Button struct {
+	Text     string
+	Data     string
+	URL      string
+	CopyText string
+	Style    string
+	// Disabled shows the button greyed out and inert. It is sent without
+	// Data, URL or CopyText: Telegram silently drops "disabled" from a button
+	// that also has an action, which would make it pressable.
+	Disabled bool
+}
+
+type copyText struct {
 	Text string `json:"text"`
-	Data string `json:"callback_data,omitempty"`
-	URL  string `json:"url,omitempty"`
+}
+
+type buttonJSON struct {
+	Text     string    `json:"text"`
+	Style    string    `json:"style,omitempty"`
+	Data     string    `json:"callback_data,omitempty"`
+	URL      string    `json:"url,omitempty"`
+	CopyText *copyText `json:"copy_text,omitempty"`
+	Disabled *struct{} `json:"disabled,omitempty"`
+}
+
+// MarshalJSON encodes b as an InlineKeyboardButton.
+func (b Button) MarshalJSON() ([]byte, error) {
+	j := buttonJSON{Text: b.Text, Style: b.Style}
+	switch {
+	case b.Disabled:
+		j.Disabled = &struct{}{}
+	default:
+		j.Data, j.URL = b.Data, b.URL
+		if b.CopyText != "" {
+			j.CopyText = &copyText{b.CopyText}
+		}
+	}
+	return json.Marshal(j)
+}
+
+// UnmarshalJSON decodes an InlineKeyboardButton, for tests and fakes.
+func (b *Button) UnmarshalJSON(data []byte) error {
+	var j buttonJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	*b = Button{Text: j.Text, Style: j.Style, Data: j.Data, URL: j.URL, Disabled: j.Disabled != nil}
+	if j.CopyText != nil {
+		b.CopyText = j.CopyText.Text
+	}
+	return nil
 }
 
 // noKeyboard removes a message's inline keyboard when sent with an edit.
@@ -234,6 +293,7 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		ParseMode           string             `json:"parse_mode"`
 		LinkPreviewOptions  linkPreviewOptions `json:"link_preview_options"`
 		DisableNotification bool               `json:"disable_notification,omitempty"`
+		ProtectContent      bool               `json:"protect_content,omitempty"`
 		ReplyParameters     *replyParameters   `json:"reply_parameters,omitempty"`
 		ReplyMarkup         *Keyboard          `json:"reply_markup,omitempty"`
 	}{
@@ -242,6 +302,7 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		ParseMode:           "HTML",
 		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
 		DisableNotification: m.Silent,
+		ProtectContent:      c.ProtectContent,
 		ReplyMarkup:         m.Keyboard,
 	}
 	if m.ReplyTo != 0 {
@@ -360,12 +421,15 @@ func IsFormatError(err error) bool {
 }
 
 // IsButtonError reports whether Telegram rejected a keyboard button, usually a
-// URL it does not accept (e.g. an internal host name without a dot).
+// URL it does not accept (e.g. an internal host name without a dot) or a copy
+// text over its length limit.
 func IsButtonError(err error) bool {
 	return hasDescription(err, "button url") ||
 		hasDescription(err, "BUTTON_URL_INVALID") ||
 		hasDescription(err, "wrong http url") ||
-		hasDescription(err, "BUTTON_DATA_INVALID")
+		hasDescription(err, "BUTTON_DATA_INVALID") ||
+		hasDescription(err, "BUTTON_COPY_TEXT_INVALID") ||
+		hasDescription(err, "can't parse InlineKeyboardButton")
 }
 
 func hasDescription(err error, substr string) bool {

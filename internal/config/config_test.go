@@ -149,7 +149,7 @@ func TestAlertmanagerAndButtons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AlertmanagerURL != nil || len(c.SilenceDurations) != 2 || c.SilenceDurations[1] != 24*time.Hour || c.ShowSourceButton {
+	if c.AlertmanagerURL != nil || len(c.SilenceDurations) != 2 || c.SilenceDurations[1] != 24*time.Hour || c.ShowSourceButton || c.ProtectContent {
 		t.Errorf("defaults: %+v", c)
 	}
 
@@ -157,10 +157,11 @@ func TestAlertmanagerAndButtons(t *testing.T) {
 	m["ALERTMANAGER_BEARER_TOKEN"] = "am-test-token"
 	m["SILENCE_DURATIONS"] = "30m, 4h, 30m"
 	m["GRAFANA_URL"] = "https://grafana.example.com"
+	m["PROTECT_CONTENT"] = "true"
 	if c, err = load(env(m), noFiles); err != nil {
 		t.Fatal(err)
 	}
-	if c.AlertmanagerURL.String() != "http://alertmanager:9093" || c.AlertmanagerToken != "am-test-token" || len(c.SilenceDurations) != 2 {
+	if c.AlertmanagerURL.String() != "http://alertmanager:9093" || c.AlertmanagerToken != "am-test-token" || len(c.SilenceDurations) != 2 || !c.ProtectContent {
 		t.Errorf("got %+v", c)
 	}
 	var logged strings.Builder
@@ -183,6 +184,7 @@ func TestAlertmanagerAndButtonsInvalid(t *testing.T) {
 		"empty durations":      {"SILENCE_DURATIONS": ","},
 		"grafana javascript":   {"GRAFANA_URL": "javascript:alert(1)"},
 		"source not bool":      {"SHOW_SOURCE_BUTTON": "sometimes"},
+		"protect not bool":     {"PROTECT_CONTENT": "maybe"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := valid()
