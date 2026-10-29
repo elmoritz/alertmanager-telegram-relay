@@ -69,6 +69,9 @@ func TestGolden(t *testing.T) {
 			d := NewData(fixture(t, name))
 			d.OpenedAt = time.Date(2026, 3, 2, 4, 57, 0, 0, time.UTC)
 			d.Added = d.Alerts.Firing()
+			if name == "firing_single" {
+				d.Silence = &Silence{Until: time.Date(2026, 3, 2, 8, 19, 0, 0, time.UTC), By: "Alice <b>"}
+			}
 			msg, err := r.Message(d)
 			if err != nil {
 				t.Fatal(err)
@@ -194,12 +197,27 @@ func TestShrinksBeforeFallingBack(t *testing.T) {
 	}
 }
 
+// An alert can start a little in the future when the Prometheus host's clock
+// runs ahead of the relay's; there is no "ago" then, and no empty "()".
+func TestStartInTheFuture(t *testing.T) {
+	a := bigAlert(0, "")
+	a.Annotations = map[string]string{"summary": "s"}
+	a.StartsAt = testNow.Add(5 * time.Second)
+	msg, err := renderer(t, "").Message(NewData(&alertmanager.Message{Status: alertmanager.StatusFiring, Alerts: []alertmanager.Alert{a}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg, "since <tg-time") || strings.Contains(msg, "()") {
+		t.Errorf("unexpected message:\n%s", msg)
+	}
+}
+
 func TestLen(t *testing.T) {
 	for s, want := range map[string]int{
 		"<b>ab</b>":    2,
 		"a &amp; b":    5,
 		"&#39;x&#34;":  3,
-		"😀":            2, // surrogate pair
+		"😀":            1, // one code point, although two UTF-16 units
 		"  <s>x</s>\n": 1,
 		`<tg-time unix="1" format="r">2h ago</tg-time>`: 6,
 	} {
@@ -227,7 +245,7 @@ func TestHelpers(t *testing.T) {
 		"//example.com/x":                 "",
 		"data:text/html,x":                "",
 	} {
-		if got := httpURL(in); got != want {
+		if got := HTTPURL(in); got != want {
 			t.Errorf("httpURL(%q) = %q", in, got)
 		}
 	}

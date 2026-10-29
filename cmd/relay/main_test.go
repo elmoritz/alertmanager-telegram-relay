@@ -21,22 +21,42 @@ const (
 	testChat   = "-1001234567890"
 )
 
-// fakeBotAPI records method names and texts.
+// fakeBotAPI records method names, texts and keyboards, and serves queued
+// updates to getUpdates.
 type fakeBotAPI struct {
-	mu    sync.Mutex
-	calls []string
+	mu      sync.Mutex
+	calls   []string
+	updates []string
+}
+
+func (f *fakeBotAPI) push(update string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates = append(f.updates, update)
 }
 
 func (f *fakeBotAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 	var p struct {
-		Text string `json:"text"`
+		Text        string          `json:"text"`
+		ReplyMarkup json.RawMessage `json:"reply_markup"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	f.mu.Lock()
-	f.calls = append(f.calls, method+": "+p.Text)
+	if method != "getUpdates" {
+		f.calls = append(f.calls, method+": "+p.Text+" | "+string(p.ReplyMarkup))
+	}
+	pending := f.updates
+	if method == "getUpdates" {
+		f.updates = nil
+	}
 	f.mu.Unlock()
 	switch method {
+	case "getUpdates":
+		if len(pending) == 0 {
+			time.Sleep(20 * time.Millisecond) // a very short long poll
+		}
+		io.WriteString(w, `{"ok":true,"result":[`+strings.Join(pending, ",")+`]}`)
 	case "getMe":
 		io.WriteString(w, `{"ok":true,"result":{"id":1,"username":"example_bot"}}`)
 	case "sendMessage":
@@ -95,10 +115,28 @@ func payload(status string) string {
 "annotations":{"summary":"server-1 is down"},"startsAt":"2026-03-02T04:56:00Z","endsAt":%q,"fingerprint":"a1"}]}`, status, status, ends)
 }
 
+// fakeAlertmanager accepts silences.
+type fakeAlertmanager struct {
+	mu       sync.Mutex
+	silences []string
+}
+
+func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	b, _ := io.ReadAll(r.Body)
+	f.mu.Lock()
+	f.silences = append(f.silences, r.Method+" "+r.URL.Path+" "+string(b))
+	f.mu.Unlock()
+	io.WriteString(w, `{"silenceID":"00000000-0000-4000-8000-000000000001"}`)
+}
+
 func TestEndToEnd(t *testing.T) {
 	bot := &fakeBotAPI{}
 	tgSrv := httptest.NewServer(bot)
 	defer tgSrv.Close()
+	am := &fakeAlertmanager{}
+	amSrv := httptest.NewServer(am)
+	defer amSrv.Close()
+	t.Setenv("ALERTMANAGER_URL", amSrv.URL)
 
 	t.Setenv("TELEGRAM_BOT_TOKEN", testToken)
 	t.Setenv("TELEGRAM_CHAT_IDS", testChat)
@@ -139,9 +177,41 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	post(payload("firing"))
-	if c := bot.waitFor(t, "sendMessage"); !strings.Contains(c, "🔥 <b>HostDown</b> · server-1") {
-		t.Errorf("sent %q", c)
+	sent := bot.waitFor(t, "sendMessage")
+	if !strings.Contains(sent, "🔥 <b>HostDown</b> · server-1") {
+		t.Errorf("sent %q", sent)
 	}
+	var kb struct {
+		Rows [][]struct {
+			Text string `json:"text"`
+			Data string `json:"callback_data"`
+		} `json:"inline_keyboard"`
+	}
+	if err := json.Unmarshal([]byte(sent[strings.Index(sent, " | ")+3:]), &kb); err != nil || len(kb.Rows) == 0 || kb.Rows[0][0].Text != "🔕 1h" {
+		t.Fatalf("keyboard: %v %q", err, sent)
+	}
+
+	press := func(user string) {
+		bot.push(fmt.Sprintf(`{"update_id":1,"callback_query":{"id":"q","from":{"id":%s,"first_name":"Alice"},"message":{"message_id":1,"chat":{"id":%s},"date":1},"data":%q}}`,
+			user, testChat, kb.Rows[0][0].Data))
+	}
+	press("22222222") // not an admin
+	if c := bot.waitFor(t, "answerCallbackQuery"); c != "answerCallbackQuery:  | " {
+		t.Errorf("unauthorised press answered with %q", c)
+	}
+	press("11111111")
+	if c := bot.waitFor(t, "answerCallbackQuery"); !strings.Contains(c, "Silenced for 1h.") {
+		t.Errorf("answer %q", c)
+	}
+	if c := bot.waitFor(t, "editMessageText"); !strings.Contains(c, "🔕 silenced until") || !strings.Contains(c, "↩️ Unsilence") {
+		t.Errorf("edited to %q", c)
+	}
+	am.mu.Lock()
+	if len(am.silences) != 1 || !strings.Contains(am.silences[0], `"createdBy":"telegram:11111111"`) || !strings.Contains(am.silences[0], `{"name":"alertname","value":"HostDown","isRegex":false,"isEqual":true}`) {
+		t.Errorf("silences = %v", am.silences)
+	}
+	am.mu.Unlock()
+
 	post(payload("resolved"))
 	if c := bot.waitFor(t, "editMessageText"); !strings.Contains(c, "✅ <b>HostDown</b> · server-1 resolved") {
 		t.Errorf("edited to %q", c)
@@ -149,7 +219,7 @@ func TestEndToEnd(t *testing.T) {
 
 	for path, want := range map[string]string{
 		"/healthz": "ok",
-		"/metrics": `relay_notifications_received_total{status="resolved"} 1`,
+		"/metrics": `relay_button_presses_total{action="silence",result="ok"} 1`,
 	} {
 		resp, err := http.Get(base + path)
 		if err != nil {

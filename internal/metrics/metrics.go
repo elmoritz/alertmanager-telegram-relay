@@ -24,6 +24,12 @@ type Metrics struct {
 	DeliveriesDropped prometheus.Counter
 	// TemplateErrors counts renders that fell back to the minimal message.
 	TemplateErrors prometheus.Counter
+	// UpdatesRejected counts Telegram updates from chats or users not allowed.
+	UpdatesRejected prometheus.Counter
+	// ButtonPresses counts allowed button presses by action and result.
+	ButtonPresses *prometheus.CounterVec
+	// AlertmanagerRequests counts Alertmanager API calls by operation and result.
+	AlertmanagerRequests *prometheus.CounterVec
 }
 
 // New registers the metrics. queueLen and openIncidents are read on scrape.
@@ -55,10 +61,23 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 			Name: "relay_template_errors_total",
 			Help: "Renders that failed and fell back to the minimal message.",
 		}),
+		UpdatesRejected: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "relay_telegram_updates_rejected_total",
+			Help: "Telegram updates dropped because the chat or user is not allowed.",
+		}),
+		ButtonPresses: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relay_button_presses_total",
+			Help: "Button presses by allowed users, by action (silence, unsilence, unknown) and result (ok, error, stale).",
+		}, []string{"action", "result"}),
+		AlertmanagerRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relay_alertmanager_requests_total",
+			Help: "Alertmanager API calls, by operation and result.",
+		}, []string{"op", "result"}),
 	}
 	reg.MustRegister(
 		m.NotificationsReceived, m.WebhookRejected, m.TelegramRequests,
 		m.DeliveryRetries, m.DeliveriesDropped, m.TemplateErrors,
+		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests,
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "relay_queue_length",
 			Help: "Notifications waiting to be delivered to Telegram.",

@@ -44,3 +44,7 @@ docker build -t alertmanager-telegram-relay:dev .
 ```
 
 A change is done when all of the above pass and SPEC.md matches the behaviour.
+A milestone is done only after the live check in `docs/LIVE-TESTING.md`
+(`go test -tags=live ./...` against a throwaway bot, plus the manual
+checklist), which the maintainer runs; also `go vet -tags=live ./...` and
+`staticcheck -tags=live ./...` so the live tests keep compiling.

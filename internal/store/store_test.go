@@ -148,3 +148,33 @@ func TestQueueSurvivesReopen(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestActions(t *testing.T) {
+	s := open(t)
+	now := time.Date(2026, 3, 2, 5, 0, 0, 0, time.UTC)
+	a := &Action{ID: "a1", Kind: ActionSilence, GroupKey: "g", Duration: time.Hour, ExpiresAt: now.Add(7 * 24 * time.Hour)}
+	b := &Action{ID: "b1", Kind: ActionUnsilence, GroupKey: "g", SilenceID: "s", ExpiresAt: now.Add(time.Hour)}
+	if err := s.PutActions(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Action("a1", now); err != nil || got == nil || got.Duration != time.Hour || got.Kind != ActionSilence {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	if got, _ := s.Action("b1", now.Add(time.Hour)); got != nil {
+		t.Error("expired action returned")
+	}
+	for _, id := range []string{"", "missing", strings.Repeat("x", 65)} {
+		if got, err := s.Action(id, now); got != nil || err != nil {
+			t.Errorf("Action(%q) = %v, %v", id, got, err)
+		}
+	}
+	if n, err := s.ExpireActions(now.Add(2 * time.Hour)); err != nil || n != 1 {
+		t.Errorf("expired %d, %v", n, err)
+	}
+	if err := s.DeleteActions("a1", "missing"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Action("a1", now); got != nil {
+		t.Error("not deleted")
+	}
+}

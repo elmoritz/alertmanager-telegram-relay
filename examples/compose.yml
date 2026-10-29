@@ -17,6 +17,9 @@ services:
       # port is deliberately not published to the host.
       LISTEN_ADDR: 0.0.0.0:9095
       TIMEZONE: Europe/Berlin
+      # Silence buttons; leave out to show only link buttons.
+      ALERTMANAGER_URL: http://alertmanager:9093
+      GRAFANA_URL: https://grafana.example.com
     secrets: [telegram_bot_token, relay_webhook_secret]
     volumes:
       - relay-data:/data

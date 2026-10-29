@@ -19,6 +19,7 @@ import (
 var (
 	bucketIncidents = []byte("incidents")
 	bucketQueue     = []byte("queue")
+	bucketActions   = []byte("actions")
 )
 
 // FileName is the state file inside STATE_DIR.
@@ -40,8 +41,74 @@ type Incident struct {
 	LastSeen time.Time `json:"lastSeen"`
 	// Firing holds the keys of the alerts firing at the last notification.
 	Firing []string `json:"firing"`
-	// TextHash identifies the last text sent or edited into the message.
+	// TextHash identifies the last text and keyboard sent or edited into the
+	// message.
 	TextHash string `json:"textHash"`
+
+	// GroupLabels are the notification's group labels: the only source of
+	// silence matchers (SECURITY.md §3).
+	GroupLabels map[string]string `json:"groupLabels,omitempty"`
+	// Last is the last notification, to re-render the message after a
+	// button press.
+	Last json.RawMessage `json:"last,omitempty"`
+	// Buttons are the callback buttons on the message's current keyboard. A
+	// press is only acted on if its action is listed here.
+	Buttons []ButtonRef `json:"buttons,omitempty"`
+	// ButtonsIssued is when the current Buttons were created.
+	ButtonsIssued time.Time `json:"buttonsIssued,omitzero"`
+	// Silence is the silence made through this message's buttons, if any.
+	Silence *Silence `json:"silence,omitempty"`
+}
+
+// ButtonRef is a callback button on an incident's keyboard.
+type ButtonRef struct {
+	ActionID string `json:"actionId"`
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+}
+
+// HasButton reports whether actionID is on the incident's current keyboard.
+func (inc *Incident) HasButton(actionID string) bool {
+	for _, b := range inc.Buttons {
+		if b.ActionID == actionID {
+			return true
+		}
+	}
+	return false
+}
+
+// ButtonIDs returns the action IDs of the current keyboard.
+func (inc *Incident) ButtonIDs() []string {
+	var ids []string
+	for _, b := range inc.Buttons {
+		ids = append(ids, b.ActionID)
+	}
+	return ids
+}
+
+// Silence is a silence created from Telegram.
+type Silence struct {
+	ID     string    `json:"id"`
+	Until  time.Time `json:"until"`
+	ByID   int64     `json:"byId"`
+	ByName string    `json:"byName"`
+}
+
+// Action kinds.
+const (
+	ActionSilence   = "silence"
+	ActionUnsilence = "unsilence"
+)
+
+// Action is what a callback button does. Buttons carry only the action's
+// random ID; everything the relay acts on is stored here (SECURITY.md §3).
+type Action struct {
+	ID        string        `json:"id"`
+	Kind      string        `json:"kind"`
+	GroupKey  string        `json:"groupKey"`
+	Duration  time.Duration `json:"duration,omitempty"`  // silence
+	SilenceID string        `json:"silenceId,omitempty"` // unsilence
+	ExpiresAt time.Time     `json:"expiresAt"`
 }
 
 // Open opens (creating if needed) the state file in dir.
@@ -54,7 +121,7 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("opening state file: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketIncidents, bucketQueue} {
+		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -175,6 +242,98 @@ func (s *Store) CountIncidents() (int, error) {
 		return nil
 	})
 	return n, err
+}
+
+// PutActions stores actions.
+func (s *Store) PutActions(actions ...*Action) error {
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketActions)
+		for _, a := range actions {
+			v, err := json.Marshal(a)
+			if err != nil {
+				return err
+			}
+			if err := b.Put([]byte(a.ID), v); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("writing actions: %w", err)
+	}
+	return nil
+}
+
+// Action returns the action with the given ID, or nil if there is none or it
+// has expired.
+func (s *Store) Action(id string, now time.Time) (*Action, error) {
+	if id == "" || len(id) > 64 {
+		return nil, nil
+	}
+	var a *Action
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(bucketActions).Get([]byte(id))
+		if v == nil {
+			return nil
+		}
+		a = new(Action)
+		return json.Unmarshal(v, a)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading action: %w", err)
+	}
+	if a != nil && !now.Before(a.ExpiresAt) {
+		return nil, nil
+	}
+	return a, nil
+}
+
+// DeleteActions removes actions; missing IDs are ignored.
+func (s *Store) DeleteActions(ids ...string) error {
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketActions)
+		for _, id := range ids {
+			if err := b.Delete([]byte(id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("deleting actions: %w", err)
+	}
+	return nil
+}
+
+// ExpireActions deletes actions that expired before now.
+func (s *Store) ExpireActions(now time.Time) (int, error) {
+	n := 0
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketActions)
+		var expired [][]byte
+		err := b.ForEach(func(k, v []byte) error {
+			var a Action
+			if err := json.Unmarshal(v, &a); err != nil || !now.Before(a.ExpiresAt) {
+				expired = append(expired, append([]byte(nil), k...))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for _, k := range expired {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+		n = len(expired)
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("expiring actions: %w", err)
+	}
+	return n, nil
 }
 
 // Job is a queued notification for one chat.
