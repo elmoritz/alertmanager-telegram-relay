@@ -28,19 +28,34 @@ responses become hand-written fixtures so the fakes stay faithful.
 
    (This puts the token on a command line briefly; acceptable for a
    throwaway bot on your own machine.)
-3. **Alertmanager.** Run a local one with
-   [`examples/dev/alertmanager.yml`](../examples/dev/alertmanager.yml), copied
-   to `~/relay-live/`, next to a webhook secret:
+3. **Alertmanager.** A local, throwaway instance, not the one your alerts go
+   through. Homebrew has no formula for it; take the release binary for your
+   platform from <https://github.com/prometheus/alertmanager/releases> and
+   check it against the published `sha256sums.txt`:
+
+   ```bash
+   mkdir -p ~/relay-live/bin && cd ~/relay-live/bin
+   v=0.34.1 p=darwin-arm64   # see the releases page; linux-amd64, darwin-amd64, …
+   curl -fLO "https://github.com/prometheus/alertmanager/releases/download/v$v/alertmanager-$v.$p.tar.gz"
+   curl -fLO "https://github.com/prometheus/alertmanager/releases/download/v$v/sha256sums.txt"
+   grep "$p.tar.gz" sha256sums.txt | shasum -a 256 -c -   # must print OK
+   tar -xzf "alertmanager-$v.$p.tar.gz" --strip-components=1
+   ```
+
+   (`go install` does not work: the module lacks its built web UI.) Run it
+   with [`examples/dev/alertmanager.yml`](../examples/dev/alertmanager.yml),
+   copied to `~/relay-live/`, next to a webhook secret:
 
    ```bash
    cd ~/relay-live
-   openssl rand -hex 32 > secrets/relay_webhook_secret
-   alertmanager --config.file=alertmanager.yml --storage.path=data
-   # or: docker run --rm --network host -v "$PWD:/etc/am" prom/alertmanager \
-   #       --config.file=/etc/am/alertmanager.yml --storage.path=/tmp/am
+   cp <repo>/examples/dev/alertmanager.yml .
+   (umask 077; openssl rand -hex 32 > secrets/relay_webhook_secret)
+   ./bin/alertmanager --config.file=alertmanager.yml --storage.path=data \
+     --web.listen-address=127.0.0.1:9093 --cluster.listen-address=
    ```
 
-   It listens on `http://127.0.0.1:9093`.
+   It listens on `http://127.0.0.1:9093`; `--cluster.listen-address=` turns
+   off clustering, which a single test instance does not need.
 
 ## Automated live tests
 
