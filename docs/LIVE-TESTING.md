@@ -17,9 +17,10 @@ responses become hand-written fixtures so the fakes stay faithful.
 1. **Test bot.** In Telegram, ask @BotFather for `/newbot`. Keep the token in a
    file outside the repository, e.g. `~/relay-live/secrets/telegram_bot_token`
    (`chmod 600`). Revoke it with `/revoke` when you no longer need it.
-2. **Test chat.** Create a private group with just you and the bot. Send any
-   message in it that mentions the bot (`@yourbot hello`), then read the chat
-   ID (negative, `-100…`) and your user ID from:
+2. **Test chat.** Create a private group with just you and the bot. Send
+   `/start@yourbot` in it (with privacy mode on, which is the default, a bot
+   does not see plain messages or mentions), then read the chat ID (negative,
+   `-100…`) and your user ID from:
 
    ```bash
    curl -s "https://api.telegram.org/bot$(cat ~/relay-live/secrets/telegram_bot_token)/getUpdates"
