@@ -345,6 +345,24 @@ func earliest(as Alerts) time.Time {
 	return slices.MinFunc(as, func(a, b alertmanager.Alert) int { return a.StartsAt.Compare(b.StartsAt) }).StartsAt
 }
 
+// Duration is the templates' duration helper, for text outside templates.
+func Duration(from, to time.Time) string { return duration(from, to) }
+
+// ShortTime formats t in TIMEZONE for plain text without <tg-time> entities,
+// such as button labels: "18:00" today, "Tue 18:00" within a week, else
+// "2 Jan 18:00".
+func (r *Renderer) ShortTime(t time.Time) string {
+	t, now := t.In(r.loc), r.now().In(r.loc)
+	switch {
+	case t.YearDay() == now.YearDay() && t.Year() == now.Year():
+		return t.Format("15:04")
+	case t.Sub(now).Abs() < 6*24*time.Hour:
+		return t.Format("Mon 15:04")
+	default:
+		return t.Format("2 Jan 15:04")
+	}
+}
+
 // duration formats to-from compactly ("45m", "2h 5m", "3d 4h"), or "" if
 // either is unset or the span is negative.
 func duration(from, to time.Time) string {

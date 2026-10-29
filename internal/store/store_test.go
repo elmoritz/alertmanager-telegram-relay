@@ -47,6 +47,23 @@ func TestIncidents(t *testing.T) {
 	}
 }
 
+func TestSilencedIncidents(t *testing.T) {
+	s := open(t)
+	now := time.Date(2026, 3, 2, 4, 56, 0, 0, time.UTC)
+	for _, inc := range []*Incident{
+		{GroupKey: "plain", LastSeen: now},
+		{GroupKey: "silenced", LastSeen: now, Silence: &Silence{ID: "s1", Until: now.Add(time.Hour)}},
+	} {
+		if err := s.PutIncident(inc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys, err := s.SilencedIncidents()
+	if err != nil || len(keys) != 1 || keys[0] != "silenced" {
+		t.Errorf("got %v, %v", keys, err)
+	}
+}
+
 func TestHugeGroupKey(t *testing.T) {
 	s := open(t)
 	key := strings.Repeat("x", 100_000)

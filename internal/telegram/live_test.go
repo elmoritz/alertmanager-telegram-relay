@@ -89,7 +89,8 @@ func TestLiveMessageLifecycle(t *testing.T) {
 	c := ctx(t)
 	kb := &telegram.Keyboard{Rows: [][]telegram.Button{
 		{{Text: "🔕 1h", Data: randomData(t)}, {Text: "🔕 24h", Data: randomData(t)}},
-		{{Text: "📊 Dashboard", URL: "https://grafana.example.com/d/abc?var-instance=server-1&from=now-1h"}},
+		{{Text: "📈 Grafana", URL: "https://grafana.example.com/d/abc?var-instance=server-1&from=now-1h"}},
+		{{Text: "📋 Copy command", CopyText: "journalctl -u node-exporter --since -1h"}},
 	}}
 	text := livetest.Prefix + ": lifecycle\n🔥 <b>HostDown</b> · server-1\n<blockquote expandable>line 1\nline 2</blockquote>"
 
@@ -103,6 +104,21 @@ func TestLiveMessageLifecycle(t *testing.T) {
 
 	t.Run("edit to identical content is not an error", func(t *testing.T) {
 		if err := edit(t, tg, c, chat, id, text, kb); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("edit to silenced: disabled status, styled button", func(t *testing.T) {
+		silenced := &telegram.Keyboard{Rows: [][]telegram.Button{
+			{{Text: "🔕 Silenced until 18:00 by Alice", Disabled: true}},
+			{{Text: "↩️ Unsilence", Data: randomData(t), Style: telegram.StylePrimary}},
+		}}
+		if err := edit(t, tg, c, chat, id, text+"\n🔕 silenced", silenced); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("edit to resolved: one disabled button", func(t *testing.T) {
+		resolved := &telegram.Keyboard{Rows: [][]telegram.Button{{{Text: "✅ Resolved after 2h 5m", Disabled: true}}}}
+		if err := edit(t, tg, c, chat, id, text+"\n✅ resolved", resolved); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -191,10 +207,12 @@ func TestLiveButtonErrors(t *testing.T) {
 	tg, chat := livetest.Telegram(t)
 	c := ctx(t)
 	for name, b := range map[string]telegram.Button{
-		"host without a dot":    {Text: "📊", URL: "http://grafana:3000/d/abc"},
-		"bare IP":               {Text: "📊", URL: "http://192.0.2.1:3000/d/abc"},
-		"localhost":             {Text: "📊", URL: "http://localhost:3000/d/abc"},
-		"65-byte callback data": {Text: "🔕", Data: strings.Repeat("a", 65)},
+		"host without a dot":      {Text: "📊", URL: "http://grafana:3000/d/abc"},
+		"bare IP":                 {Text: "📊", URL: "http://192.0.2.1:3000/d/abc"},
+		"localhost":               {Text: "📊", URL: "http://localhost:3000/d/abc"},
+		"65-byte callback data":   {Text: "🔕", Data: strings.Repeat("a", 65)},
+		"257-character copy text": {Text: "📋", CopyText: strings.Repeat("a", 257)},
+		"unknown style":           {Text: "🔕", Data: "x", Style: "nonsense"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			kb := &telegram.Keyboard{Rows: [][]telegram.Button{{b}}}

@@ -19,6 +19,7 @@ import (
 type Silencer interface {
 	CreateSilence(ctx context.Context, s alertmanager.Silence) (string, error)
 	ExpireSilence(ctx context.Context, id string) error
+	ActiveAlerts(ctx context.Context, labels map[string]string) (int, error)
 }
 
 // Answerer answers callback queries.
@@ -35,6 +36,11 @@ type Buttons struct {
 	ChatIDs      []int64
 	AdminUserIDs []int64
 	Log          *slog.Logger
+	// Enqueue queues a notification like one from Alertmanager (the
+	// dispatcher's Enqueue); CheckSilenced uses it.
+	Enqueue func(*alertmanager.Message) error
+
+	emptySince map[string]time.Time // CheckSilenced: group key → first check without alerts
 }
 
 // Toast texts. Only allowed users in allowed chats ever see them.

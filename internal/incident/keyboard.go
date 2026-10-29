@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
@@ -81,16 +82,38 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 	return stale, true, nil
 }
 
-// keyboard builds the inline keyboard for a firing message: callback
-// buttons in the first row, links in the second. Resolved messages have none.
+// unsilenceStyle highlights the button that undoes something; silence
+// buttons keep the client's default look.
+const unsilenceStyle = telegram.StylePrimary
+
+// maxCopyText is Telegram's limit for a copy button's text (checked against
+// the live API: 256 characters are accepted, 257 are not).
+const maxCopyText = 256
+
+// keyboard builds the inline keyboard for a message. Firing: a disabled
+// status button while silenced, the callback buttons, then links and the copy
+// button (withLinks; Telegram refuses some URLs, so there is a variant without
+// them). Resolved: one disabled button saying so, nothing that can be pressed.
 func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withLinks bool) *telegram.Keyboard {
-	if m.Status == alertmanager.StatusResolved {
-		return nil
-	}
 	kb := &telegram.Keyboard{}
+	if m.Status == alertmanager.StatusResolved {
+		kb.Rows = append(kb.Rows, []telegram.Button{{Text: resolvedLabel(m), Disabled: true}})
+		return kb
+	}
+	if s := inc.Silence; s != nil && len(inc.Buttons) > 0 && inc.Buttons[0].Kind == store.ActionUnsilence {
+		label := "🔕 Silenced until " + p.Render.ShortTime(s.Until)
+		if by := clipName(s.ByName); by != "" {
+			label += " by " + by
+		}
+		kb.Rows = append(kb.Rows, []telegram.Button{{Text: label, Disabled: true}})
+	}
 	var row []telegram.Button
 	for _, b := range inc.Buttons {
-		row = append(row, telegram.Button{Text: b.Label, Data: b.ActionID})
+		btn := telegram.Button{Text: b.Label, Data: b.ActionID}
+		if b.Kind == store.ActionUnsilence {
+			btn.Style = unsilenceStyle
+		}
+		row = append(row, btn)
 	}
 	if len(row) > 0 {
 		kb.Rows = append(kb.Rows, row)
@@ -99,6 +122,9 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 		if links := p.links(m); len(links) > 0 {
 			kb.Rows = append(kb.Rows, links)
 		}
+		if c := copyCommand(m); c != "" {
+			kb.Rows = append(kb.Rows, []telegram.Button{{Text: "📋 Copy command", CopyText: c}})
+		}
 	}
 	if len(kb.Rows) == 0 {
 		return nil
@@ -106,21 +132,51 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 	return kb
 }
 
+// resolvedLabel is the disabled button on a resolved message: how long the
+// incident lasted, from its first alert's start to its last alert's end.
+func resolvedLabel(m *alertmanager.Message) string {
+	var from, to time.Time
+	for _, a := range m.Alerts {
+		if from.IsZero() || a.StartsAt.Before(from) {
+			from = a.StartsAt
+		}
+		if a.EndsAt.After(to) {
+			to = a.EndsAt
+		}
+	}
+	if d := render.Duration(from, to); d != "" {
+		return "✅ Resolved after " + d
+	}
+	return "✅ Resolved"
+}
+
+// clipName shortens a Telegram display name for a button label.
+func clipName(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 32 {
+		s = string(r[:31]) + "…"
+	}
+	return s
+}
+
+// annotation returns the first firing alert's annotation name, else the
+// common annotation.
+func annotation(m *alertmanager.Message, name string) string {
+	for _, a := range m.Alerts {
+		if a.Status == alertmanager.StatusFiring && a.Annotations[name] != "" {
+			return a.Annotations[name]
+		}
+	}
+	return m.CommonAnnotations[name]
+}
+
 // links returns the URL buttons for m. Only http(s) URLs are used.
 func (p *Processor) links(m *alertmanager.Message) []telegram.Button {
-	annotation := func(name string) string {
-		for _, a := range m.Alerts {
-			if a.Status == alertmanager.StatusFiring && a.Annotations[name] != "" {
-				return a.Annotations[name]
-			}
-		}
-		return m.CommonAnnotations[name]
-	}
 	var row []telegram.Button
-	if u := cmp.Or(render.HTTPURL(annotation("dashboard_url")), p.Buttons.GrafanaURL); u != "" {
+	if u := cmp.Or(render.HTTPURL(annotation(m, "dashboard_url")), p.Buttons.GrafanaURL); u != "" {
 		row = append(row, telegram.Button{Text: "📈 Grafana", URL: u})
 	}
-	if u := render.HTTPURL(annotation("runbook_url")); u != "" {
+	if u := render.HTTPURL(annotation(m, "runbook_url")); u != "" {
 		row = append(row, telegram.Button{Text: "📖 Runbook", URL: u})
 	}
 	if p.Buttons.ShowSource && len(m.Alerts) > 0 {
@@ -129,6 +185,17 @@ func (p *Processor) links(m *alertmanager.Message) []telegram.Button {
 		}
 	}
 	return row
+}
+
+// copyCommand returns the copy_command annotation for a copy button, or ""
+// if there is none or it is too long: a clipped command would be a different
+// command. The text is the alert rule author's, not a trusted command.
+func copyCommand(m *alertmanager.Message) string {
+	c := strings.TrimSpace(annotation(m, "copy_command"))
+	if utf8.RuneCountInString(c) > maxCopyText {
+		return ""
+	}
+	return c
 }
 
 // shortDuration formats button labels: "30m", "1h", "1h30m", "24h".

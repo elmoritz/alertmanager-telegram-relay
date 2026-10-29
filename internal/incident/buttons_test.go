@@ -31,6 +31,8 @@ type fakeAlertmanager struct {
 	down     bool
 	nextID   int
 	notFound bool
+	alerts   int      // unresolved alerts GET /api/v2/alerts reports
+	filters  []string // filter parameters of the last GET /api/v2/alerts
 }
 
 func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +50,9 @@ func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.created = append(f.created, s)
 		f.nextID++
 		fmt.Fprintf(w, `{"silenceID":"00000000-0000-4000-8000-%012d"}`, f.nextID)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v2/alerts":
+		f.filters = r.URL.Query()["filter"]
+		io.WriteString(w, "["+strings.TrimSuffix(strings.Repeat(`{"labels":{}},`, f.alerts), ",")+"]")
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2/silence/"):
 		f.expired = append(f.expired, strings.TrimPrefix(r.URL.Path, "/api/v2/silence/"))
 		if f.notFound {
@@ -166,6 +171,53 @@ func TestKeyboardOnNewMessage(t *testing.T) {
 	}
 }
 
+func TestCopyCommandButton(t *testing.T) {
+	e := newButtonEnv(t)
+	m := gmsg("a")
+	m.Alerts[0].Annotations["copy_command"] = "  journalctl -u node-exporter --since -1h  "
+	kb := e.handle(m)[0].Keyboard
+	last := kb.Rows[len(kb.Rows)-1]
+	if len(last) != 1 || last[0].Text != "📋 Copy command" || last[0].CopyText != "journalctl -u node-exporter --since -1h" || last[0].Data != "" {
+		t.Errorf("copy row = %+v", last)
+	}
+
+	// Too long: no button rather than a clipped, different command.
+	m = gmsg("b")
+	m.GroupKey = "other"
+	m.Alerts[0].Annotations["copy_command"] = strings.Repeat("x", maxCopyText+1)
+	for _, r := range e.handle(m)[0].Keyboard.Rows {
+		for _, b := range r {
+			if b.CopyText != "" {
+				t.Errorf("copy button for an over-long command: %+v", b)
+			}
+		}
+	}
+}
+
+func TestRejectedCopyButtonFallsBack(t *testing.T) {
+	e := newButtonEnv(t)
+	e.tg.fail = func(c call, _ int) string {
+		if c.Keyboard == nil {
+			return ""
+		}
+		for _, r := range c.Keyboard.Rows {
+			for _, b := range r {
+				if b.CopyText != "" {
+					return `{"ok":false,"error_code":400,"description":"Bad Request: BUTTON_COPY_TEXT_INVALID"}`
+				}
+			}
+		}
+		return ""
+	}
+	m := gmsg("a")
+	m.Alerts[0].Annotations["copy_command"] = "journalctl -u foo"
+	calls := e.handle(m)
+	expectCalls(t, calls, "sendMessage", "sendMessage")
+	if got := strings.Join(row(calls[1].Keyboard, 0), ","); got != "🔕 1h,🔕 24h" || len(calls[1].Keyboard.Rows) != 1 {
+		t.Errorf("fallback keyboard = %+v", calls[1].Keyboard)
+	}
+}
+
 func TestNoSilenceButtonsWithoutGroupLabels(t *testing.T) {
 	e := newButtonEnv(t)
 	calls := e.handle(msg("a")) // no group labels
@@ -255,8 +307,14 @@ func TestSilenceAndUnsilence(t *testing.T) {
 	if !strings.Contains(calls[0].Text, "🔕 silenced until") || !strings.Contains(calls[0].Text, "by Alice") {
 		t.Errorf("message = %q", calls[0].Text)
 	}
-	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "↩️ Unsilence" {
-		t.Errorf("keyboard = %q", got)
+	kb := calls[0].Keyboard
+	if got := strings.Join(row(kb, 0), ","); !strings.HasPrefix(got, "🔕 Silenced until ") || !strings.HasSuffix(got, " by Alice") {
+		t.Errorf("status row = %q", got)
+	} else if st := kb.Rows[0][0]; !st.Disabled || st.Data != "" {
+		t.Errorf("status button must be disabled and inert: %+v", st)
+	}
+	if got := strings.Join(row(kb, 1), ","); got != "↩️ Unsilence" || kb.Rows[1][0].Style != telegram.StylePrimary {
+		t.Errorf("unsilence row = %q, style %q", got, kb.Rows[1][0].Style)
 	}
 
 	// The old silence buttons are gone: pressing one again does nothing.
@@ -302,13 +360,17 @@ func TestAlertmanagerDownChangesNothing(t *testing.T) {
 	}
 }
 
-func TestResolveRemovesKeyboardAndActions(t *testing.T) {
+func TestResolveDisablesKeyboardAndDeletesActions(t *testing.T) {
 	e := newButtonEnv(t)
 	silence := button(t, e.handle(gmsg("a"))[0].Keyboard, "🔕 1h")
 	calls := e.handle(gmsg("a-"))
 	expectCalls(t, calls, "editMessageText(#1)")
-	if calls[0].Keyboard == nil || len(calls[0].Keyboard.Rows) != 0 {
-		t.Errorf("resolve must send an empty keyboard, got %+v", calls[0].Keyboard)
+	kb := calls[0].Keyboard
+	if kb == nil || len(kb.Rows) != 1 || len(kb.Rows[0]) != 1 {
+		t.Fatalf("resolve must leave one disabled button, got %+v", kb)
+	}
+	if b := kb.Rows[0][0]; !b.Disabled || b.Data != "" || b.URL != "" || !strings.HasPrefix(b.Text, "✅ Resolved") {
+		t.Errorf("resolved button = %+v", b)
 	}
 	if a, _ := e.store.Action(silence, e.now); a != nil {
 		t.Error("action survived the resolve")

@@ -230,6 +230,68 @@ func TestNonJSONResponse(t *testing.T) {
 	}
 }
 
+func TestProtectContent(t *testing.T) {
+	f := &fake{t: t, responses: []string{`{"ok":true,"result":{"message_id":1}}`, `{"ok":true,"result":{"message_id":2}}`}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	if _, err := c.SendMessage(context.Background(), Message{ChatID: 1, Text: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	c.ProtectContent = true
+	if _, err := c.SendMessage(context.Background(), Message{ChatID: 1, Text: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, set := f.requests[0]["protect_content"]; set {
+		t.Errorf("protect_content sent by default: %v", f.requests[0])
+	}
+	if f.requests[1]["protect_content"] != true {
+		t.Errorf("protect_content missing: %v", f.requests[1])
+	}
+}
+
+// Wire formats checked against the live API (docs/LIVE-TESTING.md).
+func TestButtonJSON(t *testing.T) {
+	for _, tc := range []struct {
+		b    Button
+		want string
+	}{
+		{Button{Text: "🔕 1h", Data: "abc"}, `{"text":"🔕 1h","callback_data":"abc"}`},
+		{Button{Text: "↩️", Data: "abc", Style: StyleSuccess}, `{"text":"↩️","style":"success","callback_data":"abc"}`},
+		{Button{Text: "📖", URL: "https://example.com/rb"}, `{"text":"📖","url":"https://example.com/rb"}`},
+		{Button{Text: "📋", CopyText: "journalctl -u foo"}, `{"text":"📋","copy_text":{"text":"journalctl -u foo"}}`},
+		{Button{Text: "✅ Resolved", Disabled: true}, `{"text":"✅ Resolved","disabled":{}}`},
+		// Telegram would drop "disabled" and keep the action: never send both.
+		{Button{Text: "x", Data: "abc", URL: "https://example.com", CopyText: "c", Disabled: true}, `{"text":"x","disabled":{}}`},
+	} {
+		got, err := json.Marshal(tc.b)
+		if err != nil || string(got) != tc.want {
+			t.Errorf("Marshal(%+v) = %s, %v; want %s", tc.b, got, err, tc.want)
+			continue
+		}
+		var back Button
+		if err := json.Unmarshal(got, &back); err != nil {
+			t.Fatal(err)
+		}
+		if again, _ := json.Marshal(back); string(again) != tc.want {
+			t.Errorf("round trip of %s gave %s", tc.want, again)
+		}
+	}
+}
+
+func TestButtonErrors(t *testing.T) {
+	for _, desc := range []string{
+		"Bad Request: BUTTON_COPY_TEXT_INVALID",
+		"Bad Request: can't parse InlineKeyboardButton: Invalid button style specified",
+		"Bad Request: BUTTON_DATA_INVALID",
+	} {
+		err := &Error{Method: "sendMessage", Code: 400, Description: desc}
+		if !IsButtonError(err) || IsFormatError(err) {
+			t.Errorf("%q: button error %v, format error %v", desc, IsButtonError(err), IsFormatError(err))
+		}
+	}
+}
+
 func TestKeyboards(t *testing.T) {
 	f := &fake{t: t, responses: []string{
 		`{"ok":true,"result":{"message_id":42}}`,

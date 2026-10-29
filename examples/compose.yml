@@ -3,7 +3,7 @@
 # by the container user (uid 65532), e.g. `chmod 0444 secrets/*`.
 services:
   alertmanager-telegram-relay:
-    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.2.0
+    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.2.1
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
