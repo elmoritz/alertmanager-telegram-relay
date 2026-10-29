@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata" // the distroless image has no zoneinfo
+
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/route"
 )
 
 // Reminder modes for REMINDERS.
@@ -53,6 +55,12 @@ type Config struct {
 	GrafanaURL       string
 	ShowSourceButton bool
 	ProtectContent   bool
+
+	// Routes pick a chat and topic by labels; without a match, notifications
+	// go to the first of ChatIDs.
+	Routes          []route.Rule
+	QuietSeverities []string
+	QuietHours      *route.Window // nil: none
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -175,6 +183,26 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		fail(fmt.Errorf("PROTECT_CONTENT: %w", err))
 	}
 
+	if c.Routes, err = route.Parse(getenv("ROUTES"), c.ChatIDs); err != nil {
+		fail(fmt.Errorf("ROUTES: %w", err))
+	}
+	for _, s := range strings.Split(str("QUIET_SEVERITIES", ""), ",") {
+		switch s = strings.TrimSpace(s); s {
+		case "":
+		case route.Critical:
+			fail(errors.New("QUIET_SEVERITIES: critical always rings and cannot be quiet"))
+		default:
+			c.QuietSeverities = append(c.QuietSeverities, s)
+		}
+	}
+	if v := str("QUIET_HOURS", ""); v != "" {
+		w, err := route.ParseWindow(v)
+		if err != nil {
+			fail(fmt.Errorf("QUIET_HOURS: %w", err))
+		}
+		c.QuietHours = &w
+	}
+
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -256,8 +284,15 @@ func durations(s string) ([]time.Duration, error) {
 	return ds, nil
 }
 
-// DefaultChatID is the chat notifications go to until routing exists (v0.3).
-func (c *Config) DefaultChatID() int64 { return c.ChatIDs[0] }
+// Router routes notifications by ROUTES, defaulting to the first chat.
+func (c *Config) Router() route.Router {
+	return route.Router{Rules: c.Routes, Default: route.Target{ChatID: c.ChatIDs[0]}}
+}
+
+// Quiet is the QUIET_SEVERITIES and QUIET_HOURS setting, in TIMEZONE.
+func (c *Config) Quiet() route.Quiet {
+	return route.Quiet{Severities: c.QuietSeverities, Hours: c.QuietHours, Location: c.Location}
+}
 
 // String returns a redacted description safe to log. Value receivers, so
 // both Config and *Config are covered.
@@ -286,6 +321,9 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("grafana_url", c.GrafanaURL != ""),
 		slog.Bool("show_source_button", c.ShowSourceButton),
 		slog.Bool("protect_content", c.ProtectContent),
+		slog.Int("routes", len(c.Routes)),
+		slog.Any("quiet_severities", c.QuietSeverities),
+		slog.Bool("quiet_hours", c.QuietHours != nil),
 	)
 }
 

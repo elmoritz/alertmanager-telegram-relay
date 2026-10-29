@@ -197,7 +197,7 @@ func (b *Buttons) refresh(ctx context.Context, log *slog.Logger, inc *store.Inci
 	if err != nil {
 		log.Error("issuing buttons failed", "err", err)
 	}
-	j := &job{p: p, ctx: ctx, log: log, deadline: now.Add(30 * time.Second), chatID: inc.ChatID}
+	j := &job{p: p, ctx: ctx, log: log, deadline: now.Add(30 * time.Second), chatID: inc.ChatID, threadID: inc.ThreadID}
 	if err := j.update(inc, p.view(inc, m, nil), true); err != nil {
 		log.Warn("updating message after button press failed", "err", err)
 	}

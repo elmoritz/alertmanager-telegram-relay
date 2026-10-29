@@ -195,7 +195,9 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 // Message is a text message to send. Text is Telegram HTML.
 type Message struct {
 	ChatID int64
-	Text   string
+	// ThreadID, if non-zero, sends into that forum topic.
+	ThreadID int
+	Text     string
 	// ReplyTo, if non-zero, makes the message a reply. If the original is
 	// gone, the message is sent anyway, without the reply.
 	ReplyTo int
@@ -289,6 +291,7 @@ type linkPreviewOptions struct {
 func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	params := struct {
 		ChatID              int64              `json:"chat_id"`
+		MessageThreadID     int                `json:"message_thread_id,omitempty"`
 		Text                string             `json:"text"`
 		ParseMode           string             `json:"parse_mode"`
 		LinkPreviewOptions  linkPreviewOptions `json:"link_preview_options"`
@@ -298,6 +301,7 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		ReplyMarkup         *Keyboard          `json:"reply_markup,omitempty"`
 	}{
 		ChatID:              m.ChatID,
+		MessageThreadID:     m.ThreadID,
 		Text:                m.Text,
 		ParseMode:           "HTML",
 		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},

@@ -230,6 +230,24 @@ func TestNonJSONResponse(t *testing.T) {
 	}
 }
 
+func TestThreadID(t *testing.T) {
+	f := &fake{t: t, responses: []string{`{"ok":true,"result":{"message_id":1}}`, `{"ok":true,"result":{"message_id":2}}`}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	for _, thread := range []int{0, 42} {
+		if _, err := c.SendMessage(context.Background(), Message{ChatID: 1, ThreadID: thread, Text: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, set := f.requests[0]["message_thread_id"]; set {
+		t.Errorf("message_thread_id sent without a topic: %v", f.requests[0])
+	}
+	if f.requests[1]["message_thread_id"] != float64(42) {
+		t.Errorf("message_thread_id missing: %v", f.requests[1])
+	}
+}
+
 func TestProtectContent(t *testing.T) {
 	f := &fake{t: t, responses: []string{`{"ok":true,"result":{"message_id":1}}`, `{"ok":true,"result":{"message_id":2}}`}}
 	srv := httptest.NewServer(f)

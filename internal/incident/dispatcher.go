@@ -19,8 +19,6 @@ type Dispatcher struct {
 	Store     *store.Store
 	Processor *Processor
 	Log       *slog.Logger
-	// Route picks the chat for a notification.
-	Route func(*alertmanager.Message) int64
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -53,11 +51,14 @@ func (d *Dispatcher) Enqueue(m *alertmanager.Message) error {
 	if err != nil {
 		return fmt.Errorf("encoding notification: %w", err)
 	}
-	chat := d.Route(m)
-	if err := d.Store.Enqueue(chat, payload); err != nil {
+	target, err := d.Processor.Target(m)
+	if err != nil {
 		return err
 	}
-	d.wake(chat)
+	if err := d.Store.Enqueue(target.ChatID, payload); err != nil {
+		return err
+	}
+	d.wake(target.ChatID)
 	return nil
 }
 

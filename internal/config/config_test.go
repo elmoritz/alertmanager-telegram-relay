@@ -39,7 +39,7 @@ func TestLoadDefaults(t *testing.T) {
 	if c.ListenAddr != "127.0.0.1:9095" {
 		t.Errorf("ListenAddr = %q, want loopback default", c.ListenAddr)
 	}
-	if c.DefaultChatID() != -1001234567890 || len(c.ChatIDs) != 2 {
+	if c.Router().Default.ChatID != -1001234567890 || len(c.ChatIDs) != 2 {
 		t.Errorf("ChatIDs = %v", c.ChatIDs)
 	}
 	if c.Reminders != RemindersReply || c.ResolveReply || c.IncidentTTL.Hours() != 720 || c.Location.String() != "UTC" {
@@ -195,6 +195,55 @@ func TestAlertmanagerAndButtonsInvalid(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "pass@") {
 				t.Errorf("error echoes credentials: %v", err)
+			}
+		})
+	}
+}
+
+func TestRoutingAndQuiet(t *testing.T) {
+	m := valid()
+	c, err := load(env(m), noFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Routes) != 0 || c.QuietSeverities != nil || c.QuietHours != nil {
+		t.Errorf("defaults: %+v", c)
+	}
+
+	m["ROUTES"] = "team=\"media\" => -1001234567891/42\nseverity=critical => -1001234567890"
+	m["QUIET_SEVERITIES"] = "warning, info"
+	m["QUIET_HOURS"] = "22:00-07:00"
+	m["TIMEZONE"] = "Europe/Berlin"
+	if c, err = load(env(m), noFiles); err != nil {
+		t.Fatal(err)
+	}
+	r := c.Router()
+	if len(r.Rules) != 2 || r.Pick(map[string]string{"team": "media"}).ThreadID != 42 || r.Default.ChatID != -1001234567890 {
+		t.Errorf("router %+v", r)
+	}
+	q := c.Quiet()
+	night := time.Date(2026, 3, 2, 22, 30, 0, 0, c.Location)
+	if !q.Silent("warning", night) || !q.Silent("", night) || q.Silent("critical", night) || q.Silent("", night.Add(10*time.Hour)) {
+		t.Errorf("quiet %+v", q)
+	}
+}
+
+func TestRoutingAndQuietInvalid(t *testing.T) {
+	for name, set := range map[string]map[string]string{
+		"route to unknown chat": {"ROUTES": `team="media" => -1009999999999`},
+		"route syntax":          {"ROUTES": `team="media"`},
+		"critical quiet":        {"QUIET_SEVERITIES": "warning,critical"},
+		"quiet hours":           {"QUIET_HOURS": "late"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := valid()
+			maps.Copy(m, set)
+			_, err := load(env(m), noFiles)
+			if err == nil {
+				t.Fatal("want error")
+			}
+			if strings.Contains(err.Error(), "9999") || strings.Contains(err.Error(), "media") {
+				t.Errorf("error echoes the value: %v", err)
 			}
 		})
 	}
