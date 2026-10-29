@@ -3,7 +3,7 @@
 # by the container user (uid 65532), e.g. `chmod 0444 secrets/*`.
 services:
   alertmanager-telegram-relay:
-    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.3.0
+    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.3.1
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -25,6 +25,7 @@ services:
       #   team="media" => -1001234567890/42
       # QUIET_SEVERITIES: info
       # QUIET_HOURS: "22:00-07:00"
+      # ESCALATE_AFTER: 15m
     secrets: [telegram_bot_token, relay_webhook_secret]
     volumes:
       - relay-data:/data

@@ -439,8 +439,9 @@ names the variable but never echoes its value.
    button (v0.2.1, issues #1–#4); resolving groups silenced from Telegram,
    which Alertmanager does not report (v0.2.1). Live check passed.
 3. **v0.3, routing (in progress):** quiet severities, multiple chats and
-   forum topics, quiet hours (#8) in v0.3.0 (live check passed);
-   acknowledgement (#13) and escalation (#5) for v0.3.1; custom silence by
+   forum topics, quiet hours (#8) in v0.3.0; acknowledgement (#13) and
+   escalation (#5, without direct messages) in v0.3.1 (live checks passed);
+   custom silence by
    reply (#7) and the status board (#6) for v0.3.2. Topics in private chats
    (#9) are deferred: they need BotFather's threaded mode, which may cost a
    fee, and are reported to fail.

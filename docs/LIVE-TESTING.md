@@ -137,6 +137,8 @@ Tick each item, and note anything that differs:
 - [ ] **Long content:** fire an alert whose description is a few thousand characters (edit the description in `fire`). The message arrives shortened, not missing.
 - [ ] **Routes and topics** (needs a forum group with two topics, `RELAY_LIVE_TOPIC_<NAME>` in the environment): with `ROUTES` sending `team="media"` and `team="infra"` to the topics, alerts land in their topic, the rest in General; an "added" reply lands in the incident's topic; a route to a non-existent topic lands in General with a warning in the log.
 - [ ] **Quiet:** with `QUIET_SEVERITIES=info`, an info alert arrives without sound; a critical one always rings.
+- [ ] **I'm on it:** pressing "👀 I'm on it" shows "👀 <name> is on it", a ↩️ Release button and the bot's 👀 reaction; Release undoes all three. An admin's 👍 on the alert or on an escalation reply acknowledges too.
+- [ ] **Escalation:** with `ESCALATE_AFTER=2m`, an unacknowledged critical alert gets one "🚨 still unacknowledged after 2m" reply with sound, then again 2m later at most, 3 times in total; acknowledging or silencing stops it.
 - [ ] **Resolved while silenced:** silence an alert from Telegram, then `resolve` it. Alertmanager sends nothing, but within about 6 minutes the relay edits the message to resolved (log: "silenced alerts resolved without a notification").
 - [ ] **Silenced status:** while silenced, a greyed-out "🔕 Silenced until … by …" sits above a highlighted ↩️ Unsilence; tapping the grey one does nothing.
 - [ ] **Resolved status:** a resolved message keeps one greyed-out "✅ Resolved after …" button; tapping it does nothing.
