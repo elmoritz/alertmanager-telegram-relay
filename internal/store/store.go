@@ -234,6 +234,25 @@ func (s *Store) ExpireIncidents(cutoff time.Time) (int, error) {
 	return n, nil
 }
 
+// SilencedIncidents returns the group keys of open incidents with a silence
+// made from Telegram.
+func (s *Store) SilencedIncidents() ([]string, error) {
+	var keys []string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketIncidents).ForEach(func(_, v []byte) error {
+			var inc Incident
+			if json.Unmarshal(v, &inc) == nil && inc.Silence != nil {
+				keys = append(keys, inc.GroupKey)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing silenced incidents: %w", err)
+	}
+	return keys, nil
+}
+
 // CountIncidents returns the number of open incidents.
 func (s *Store) CountIncidents() (int, error) {
 	n := 0

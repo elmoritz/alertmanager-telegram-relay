@@ -139,3 +139,32 @@ func TestUnreachable(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestActiveAlerts(t *testing.T) {
+	var query url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/am/api/v2/alerts" {
+			t.Errorf("request %s %s", r.Method, r.URL.Path)
+		}
+		query = r.URL.Query()
+		io.WriteString(w, `[{"labels":{"alertname":"DiskFull"},"status":{"state":"suppressed"}},{"labels":{"alertname":"DiskFull"},"status":{"state":"active"}}]`)
+	}))
+	defer srv.Close()
+	base, _ := url.Parse(srv.URL + "/am")
+
+	n, err := NewClient(base, "", "", "").ActiveAlerts(context.Background(), map[string]string{"instance": `server-1 "a"\b`, "alertname": "DiskFull"})
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if got := strings.Join(query["filter"], " "); got != `alertname="DiskFull" instance="server-1 \"a\"\\b"` {
+		t.Errorf("filter = %s", got)
+	}
+	for _, p := range []string{"active", "silenced", "inhibited", "unprocessed"} {
+		if query.Get(p) != "true" {
+			t.Errorf("%s = %q", p, query.Get(p))
+		}
+	}
+	if _, err := NewClient(base, "", "", "").ActiveAlerts(context.Background(), nil); err == nil {
+		t.Error("no labels must be an error, not all alerts")
+	}
+}

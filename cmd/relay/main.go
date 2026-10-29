@@ -130,7 +130,11 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	if err := dispatcher.Start(runCtx); err != nil {
 		return err
 	}
+	buttons.Enqueue = dispatcher.Enqueue
 	go expire(runCtx, st, cfg.IncidentTTL, log)
+	if buttons.Alertmanager != nil {
+		go checkSilenced(runCtx, buttons)
+	}
 
 	// Button presses arrive by long polling: no inbound connection needed.
 	var lastPoll atomic.Int64
@@ -218,6 +222,21 @@ func checkBot(tg *telegram.Client, log *slog.Logger) error {
 	}
 	log.Info("telegram bot ready", "bot", me.Username)
 	return nil
+}
+
+// checkSilenced looks after incidents silenced from Telegram, whose resolve
+// Alertmanager does not report (SPEC §5).
+func checkSilenced(ctx context.Context, b *incident.Buttons) {
+	t := time.NewTicker(incident.SilencedCheckInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			b.CheckSilenced(ctx)
+		}
+	}
 }
 
 // expire forgets incidents after INCIDENT_TTL and button actions once they

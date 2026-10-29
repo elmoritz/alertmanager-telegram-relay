@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -23,7 +26,7 @@ type Client struct {
 	http     *http.Client
 
 	// OnCall, if set, is called after every request with the operation
-	// ("create_silence", "expire_silence") and "ok" or "error".
+	// ("create_silence", "expire_silence", "list_alerts") and "ok" or "error".
 	OnCall func(op, result string)
 }
 
@@ -92,6 +95,32 @@ func (c *Client) ExpireSilence(ctx context.Context, id string) error {
 		return errors.New("invalid silence ID")
 	}
 	return c.do(ctx, "expire_silence", http.MethodDelete, c.base.JoinPath("api/v2/silence", id), nil, nil)
+}
+
+// ActiveAlerts returns how many unresolved alerts Alertmanager has whose
+// labels include all of labels, silenced and inhibited ones included.
+func (c *Client) ActiveAlerts(ctx context.Context, labels map[string]string) (int, error) {
+	if len(labels) == 0 {
+		return 0, errors.New("alertmanager list_alerts: no labels to match")
+	}
+	u := c.base.JoinPath("api/v2/alerts")
+	q := url.Values{"active": {"true"}, "silenced": {"true"}, "inhibited": {"true"}, "unprocessed": {"true"}}
+	for _, name := range slices.Sorted(maps.Keys(labels)) {
+		q.Add("filter", name+"="+quoteMatcherValue(labels[name]))
+	}
+	u.RawQuery = q.Encode()
+	var alerts []json.RawMessage
+	if err := c.do(ctx, "list_alerts", http.MethodGet, u, nil, &alerts); err != nil {
+		return 0, err
+	}
+	return len(alerts), nil
+}
+
+// quoteMatcherValue quotes a label value for an Alertmanager matcher, with
+// the escapes its parser understands.
+func quoteMatcherValue(v string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	return `"` + r.Replace(v) + `"`
 }
 
 func (c *Client) do(ctx context.Context, op, method string, u *url.URL, body, result any) error {

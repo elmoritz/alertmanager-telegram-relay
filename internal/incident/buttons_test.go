@@ -31,6 +31,8 @@ type fakeAlertmanager struct {
 	down     bool
 	nextID   int
 	notFound bool
+	alerts   int      // unresolved alerts GET /api/v2/alerts reports
+	filters  []string // filter parameters of the last GET /api/v2/alerts
 }
 
 func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +50,9 @@ func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.created = append(f.created, s)
 		f.nextID++
 		fmt.Fprintf(w, `{"silenceID":"00000000-0000-4000-8000-%012d"}`, f.nextID)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v2/alerts":
+		f.filters = r.URL.Query()["filter"]
+		io.WriteString(w, "["+strings.TrimSuffix(strings.Repeat(`{"labels":{}},`, f.alerts), ",")+"]")
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2/silence/"):
 		f.expired = append(f.expired, strings.TrimPrefix(r.URL.Path, "/api/v2/silence/"))
 		if f.notFound {

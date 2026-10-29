@@ -210,8 +210,24 @@ Inline keyboard under every firing message:
 - If Alertmanager is unreachable, the toast says so and nothing changes (the
   buttons keep working). Unsilencing a silence Alertmanager no longer knows
   counts as success.
-- A silence that runs out by itself is noticed at the next notification for
-  the incident, which restores the silence buttons.
+- **Silenced groups are checked against Alertmanager.** Alertmanager sends no
+  notification when silenced alerts resolve, and none right away when a
+  silence runs out while the alerts keep firing (the next one may be a
+  `repeat_interval` away). So every minute, for each incident silenced from
+  Telegram, the relay asks for the group's unresolved alerts
+  (`GET /api/v2/alerts`, exact matchers on the group labels, silenced and
+  inhibited ones included):
+  - none for 5 minutes in a row: the relay queues the resolve notification
+    Alertmanager did not send (the last notification, all alerts resolved
+    now), and the message is resolved as usual. The 5 minutes cover an
+    Alertmanager restart, after which the list stays empty until Prometheus
+    sends the alerts again (every minute by default). The silence itself is
+    left to run out in Alertmanager.
+  - still firing after the silence ran out: the message is updated and the
+    silence buttons come back.
+  - Alertmanager unreachable: nothing changes; the next check tries again.
+  A silence that runs out is also noticed at the next notification for the
+  incident.
 - A silence created outside Telegram is not tracked; the message only reflects
   silences made through its own buttons.
 - Link buttons use only `http(s)` URLs. `dashboard_url` and `runbook_url` are
@@ -314,7 +330,7 @@ names the variable but never echoes its value.
   | `relay_open_incidents` | |
   | `relay_telegram_updates_rejected_total` | |
   | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `unknown`), `result` (`ok`, `error`, `stale`) |
-  | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`), `result` (`ok`, `error`) |
+  | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`), `result` (`ok`, `error`) |
 
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short
   hash of the group key, since group keys contain label values. Creating and
@@ -345,7 +361,8 @@ names the variable but never echoes its value.
 2. **v0.2, buttons (in progress):** long polling, callback handling,
    silence/unsilence, Grafana/runbook URL buttons (released as v0.2.0, live
    check passed); `PROTECT_CONTENT`, coloured and disabled buttons, copy
-   button (v0.2.1, issues #1–#4).
+   button (v0.2.1, issues #1–#4); resolving groups silenced from Telegram,
+   which Alertmanager does not report (v0.2.1).
 3. **v0.3, routing:** quiet severities, multiple chats and forum topics.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
 
