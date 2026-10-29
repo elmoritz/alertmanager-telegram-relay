@@ -16,6 +16,7 @@ import (
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/config"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/metrics"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/route"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/store"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/telegram"
 )
@@ -39,6 +40,10 @@ type Processor struct {
 
 	Reminders    string // config.Reminders*
 	ResolveReply bool
+	// Router picks the chat and topic of a new incident; Quiet decides which
+	// notifications are sent without sound (SPEC §7).
+	Router route.Router
+	Quiet  route.Quiet
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
@@ -77,6 +82,12 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 		log = log.With("chat_id", chatID)
 	}
 	j := &job{p: p, ctx: ctx, log: log, deadline: now.Add(p.RetryFor), chatID: chatID}
+	if inc != nil {
+		j.threadID = inc.ThreadID
+	} else if t := p.Router.Pick(routingLabels(m)); t.ChatID == chatID {
+		j.threadID = t.ThreadID
+	}
+	quiet := p.Quiet.Silent(render.Severity(render.NewData(m)), now)
 	last, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -84,18 +95,18 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 
 	switch plan.Kind {
 	case Open:
-		inc = &store.Incident{GroupKey: m.GroupKey, ChatID: chatID, OpenedAt: now, LastSeen: now, Firing: plan.Firing,
+		inc = &store.Incident{GroupKey: m.GroupKey, ChatID: chatID, ThreadID: j.threadID, OpenedAt: now, LastSeen: now, Firing: plan.Firing,
 			GroupLabels: m.GroupLabels, Last: last}
 		if _, _, err := p.issueButtons(inc, now, true); err != nil {
 			return err
 		}
 		v := p.view(inc, m, nil)
-		id, err := j.send(v, 0, false)
+		id, err := j.send(v, 0, quiet)
 		if err != nil {
 			j.forget(inc.ButtonIDs())
 			return j.dropped(err)
 		}
-		inc.MessageID, inc.TextHash = id, v.hash()
+		inc.MessageID, inc.ThreadID, inc.TextHash = id, j.threadID, v.hash()
 		if err := p.Store.PutIncident(inc); err != nil {
 			// The message is out; without the record the next notification
 			// opens a second one. Not worth re-sending this one for.
@@ -110,7 +121,7 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 		if err != nil {
 			return err
 		}
-		if err := j.update(inc, p.view(inc, m, plan.Added), false); err != nil {
+		if err := j.update(inc, p.view(inc, m, plan.Added), quiet); err != nil {
 			if issued {
 				j.forget(inc.ButtonIDs()) // never shown; the stored keyboard stays as it was
 			}
@@ -125,13 +136,13 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 		if plan.Kind == Changed {
 			log.Info("incident changed", "alerts", len(plan.Firing), "added", len(plan.Added))
 			if len(plan.Added) > 0 {
-				j.reply(inc.MessageID, p.Render.Added, d, false)
+				j.reply(inc.MessageID, p.Render.Added, d, quiet)
 			}
 			return nil
 		}
 		switch p.Reminders {
 		case config.RemindersReply:
-			j.reply(inc.MessageID, p.Render.Reminder, d, false)
+			j.reply(inc.MessageID, p.Render.Reminder, d, quiet)
 		case config.RemindersSilent:
 			j.reply(inc.MessageID, p.Render.Reminder, d, true)
 		}
@@ -160,6 +171,29 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 		return nil
 	}
 	return fmt.Errorf("unhandled plan %v", plan.Kind)
+}
+
+// Target is where notification m goes: the chat and topic of the group's
+// open incident, so an incident stays where it started, else what the
+// Router picks.
+func (p *Processor) Target(m *alertmanager.Message) (route.Target, error) {
+	inc, err := p.Store.Incident(m.GroupKey)
+	if err != nil {
+		return route.Target{}, err
+	}
+	if inc != nil {
+		return route.Target{ChatID: inc.ChatID, ThreadID: inc.ThreadID}, nil
+	}
+	return p.Router.Pick(routingLabels(m)), nil
+}
+
+// routingLabels are the labels routes match: those all alerts of the group
+// share.
+func routingLabels(m *alertmanager.Message) map[string]string {
+	if len(m.CommonLabels) > 0 {
+		return m.CommonLabels
+	}
+	return m.GroupLabels
 }
 
 // data is the template data for inc's message showing notification m.
@@ -224,19 +258,30 @@ type job struct {
 	log      *slog.Logger
 	deadline time.Time
 	chatID   int64
+	threadID int
 }
 
 // send sends the first variant of v that Telegram accepts and returns the
-// new message's ID.
+// new message's ID. If the forum topic is gone, it sends to the chat without
+// a topic: a notification in the wrong place beats none; j.threadID then
+// says where it went.
 func (j *job) send(v view, replyTo int, silent bool) (int, error) {
 	var id int
-	err := j.withFallback(v, func(vr variant) error {
-		return j.retry(func(ctx context.Context) error {
-			var err error
-			id, err = j.p.Telegram.SendMessage(ctx, telegram.Message{ChatID: j.chatID, Text: vr.text, ReplyTo: replyTo, Silent: silent, Keyboard: vr.kb})
-			return err
+	try := func() error {
+		return j.withFallback(v, func(vr variant) error {
+			return j.retry(func(ctx context.Context) error {
+				var err error
+				id, err = j.p.Telegram.SendMessage(ctx, telegram.Message{ChatID: j.chatID, ThreadID: j.threadID, Text: vr.text, ReplyTo: replyTo, Silent: silent, Keyboard: vr.kb})
+				return err
+			})
 		})
-	})
+	}
+	err := try()
+	if telegram.IsThreadGone(err) && j.threadID != 0 {
+		j.log.Warn("forum topic not found, sending to the chat without a topic")
+		j.threadID = 0
+		err = try()
+	}
 	return id, err
 }
 
@@ -257,7 +302,7 @@ func (j *job) update(inc *store.Incident, v view, silent bool) error {
 		j.log.Warn("message can no longer be edited, sending a new one")
 		var id int
 		if id, err = j.send(v, 0, silent); err == nil {
-			inc.MessageID = id
+			inc.MessageID, inc.ThreadID = id, j.threadID
 		}
 	}
 	if err == nil {
@@ -324,6 +369,12 @@ func (j *job) dropped(err error) error {
 		return j.ctx.Err() // shutting down: keep it queued for the next start
 	}
 	j.p.Metrics.DeliveriesDropped.Inc()
+	if to := telegram.MigratedTo(err); to != 0 {
+		// Chat IDs only at debug level (SECURITY.md §1).
+		j.log.Error("notification dropped: the chat was upgraded to a supergroup (e.g. topics were turned on) and has a new ID; put it into TELEGRAM_CHAT_IDS and ROUTES", "err", err)
+		j.log.Debug("upgraded chat", "chat_id", j.chatID, "new_chat_id", to)
+		return nil
+	}
 	j.log.Error("notification dropped", "err", err)
 	return nil
 }

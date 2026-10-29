@@ -248,10 +248,43 @@ Only for allowed users in allowed chats; anything else ignored silently.
 ## 7. Routing within Telegram
 
 - **Several chats/topics:** `ROUTES` maps label matchers to a target chat and
-  optional forum topic (`message_thread_id`), e.g. everything with
-  `team="media"` to one topic. Default: the first allowed chat.
+  optional forum topic (`message_thread_id`). One rule per line (or separated
+  by `;`), first match wins; lines starting with `#` are comments:
+
+  ```
+  team="media" => -1001234567890/42
+  severity="critical", instance=~"db-.*" => -1001234567891
+  ```
+
+  Matchers use Alertmanager's syntax (`=`, `!=`, `=~`, `!~`; regexes are
+  anchored; values quoted, with `\"`, `\\` and `\n` escapes, or bare words).
+  They are matched against the labels all alerts of the group share
+  (`commonLabels`); a label that is missing matches as `""`. The target is a
+  chat from `TELEGRAM_CHAT_IDS`, optionally `/<topic id>`. Without a matching
+  rule, notifications go to the first chat in `TELEGRAM_CHAT_IDS`.
+- **An incident stays where it started.** Later notifications of the group,
+  replies and the fallback after a lost message go to the incident's chat and
+  topic, even if the group's common labels change.
+- **A topic that does not exist** (deleted, or a wrong ID in `ROUTES`):
+  Telegram answers "message thread not found"; the message is sent to the
+  same chat without a topic, logged as a warning, and the incident stays
+  there. A notification in the wrong place beats none.
+- **A group upgraded to a supergroup** (turning on topics does this) gets a
+  new chat ID; Telegram rejects sends to the old one and names the new one.
+  The relay does not follow it, since chats are an explicit allowlist
+  (SECURITY.md §2): the notification is dropped (counted in
+  `relay_deliveries_dropped_total`) with an error saying to put the new ID
+  into `TELEGRAM_CHAT_IDS` and `ROUTES`; the new ID itself is logged only at
+  debug level. Note that `getChat` on the old ID may still describe the old
+  group.
 - **Quiet severities:** `QUIET_SEVERITIES=warning,info` sends those with
-  `disable_notification: true`. Critical always rings.
+  `disable_notification: true`: the new message, the "added" reply and
+  reminders. Critical always rings; `critical` in the list is a startup
+  error.
+- **Quiet hours:** `QUIET_HOURS=22:00-07:00` (in `TIMEZONE`, may span
+  midnight) sends everything except critical without sound in that window.
+- The severity is the one the template shows: the common `severity` label,
+  else that of the most severe firing alert.
 
 ## 8. Graph images (later, optional)
 
@@ -290,7 +323,7 @@ names the variable but never echoes its value.
 | Variable | Since | Required | Default | Meaning |
 |---|---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | v0.1 | yes | | Bot token from @BotFather. Checked with `getMe` at startup: a rejected token stops the relay |
-| `TELEGRAM_CHAT_IDS` | v0.1 | yes | | Comma-separated chats the relay posts to and accepts updates from. Until v0.3, notifications go to the first |
+| `TELEGRAM_CHAT_IDS` | v0.1 | yes | | Comma-separated chats the relay posts to and accepts updates from. Notifications go to the first unless `ROUTES` says otherwise |
 | `TELEGRAM_ADMIN_USER_IDS` | v0.1 | yes | | Users whose button presses are acted on (required from v0.1, used from v0.2) |
 | `WEBHOOK_SECRET` | v0.1 | yes | | Bearer secret Alertmanager sends |
 | `LISTEN_ADDR` | v0.1 | | `127.0.0.1:9095` | Webhook, `/healthz`, `/metrics` |
@@ -298,9 +331,11 @@ names the variable but never echoes its value.
 | `ALERTMANAGER_USERNAME` + `_PASSWORD`, or `_BEARER_TOKEN` | v0.2 | | | API auth, if any; basic or bearer, not both |
 | `STATE_DIR` | v0.1 | | `/data` | bbolt file location (`relay.db`) |
 | `TEMPLATE_FILE` | v0.1 | | built-in | Custom message template |
-| `TIMEZONE` | v0.1 | | `UTC` | Fallback text inside `<tg-time>` |
+| `TIMEZONE` | v0.1 | | `UTC` | Fallback text inside `<tg-time>`, button labels, `QUIET_HOURS` |
 | `SILENCE_DURATIONS` | v0.2 | | `1h,24h` | Silence buttons |
-| `QUIET_SEVERITIES` | v0.3 | | empty | Sent without sound |
+| `ROUTES` | v0.3 | | empty | Chat and forum topic by labels (§7) |
+| `QUIET_SEVERITIES` | v0.3 | | empty | Comma-separated severities sent without sound; not `critical` (§7) |
+| `QUIET_HOURS` | v0.3 | | empty | e.g. `22:00-07:00` in `TIMEZONE`: everything but critical without sound (§7) |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
@@ -363,7 +398,12 @@ names the variable but never echoes its value.
    check passed); `PROTECT_CONTENT`, coloured and disabled buttons, copy
    button (v0.2.1, issues #1–#4); resolving groups silenced from Telegram,
    which Alertmanager does not report (v0.2.1). Live check passed.
-3. **v0.3, routing:** quiet severities, multiple chats and forum topics.
+3. **v0.3, routing (in progress):** quiet severities, multiple chats and
+   forum topics, quiet hours (#8) in v0.3.0 (live check passed);
+   acknowledgement (#13) and escalation (#5) for v0.3.1; custom silence by
+   reply (#7) and the status board (#6) for v0.3.2. Topics in private chats
+   (#9) are deferred: they need BotFather's threaded mode, which may cost a
+   fee, and are reported to fail.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
 
 A milestone's scope is the list above **plus the open issues in the GitHub

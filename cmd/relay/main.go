@@ -105,6 +105,8 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 		},
 		Reminders:    cfg.Reminders,
 		ResolveReply: cfg.ResolveReply,
+		Router:       cfg.Router(),
+		Quiet:        cfg.Quiet(),
 		RetryFor:     retryFor,
 		Now:          time.Now,
 		Sleep:        incident.SleepContext,
@@ -124,7 +126,6 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	dispatcher := &incident.Dispatcher{
 		Store:     st,
 		Log:       log,
-		Route:     func(*alertmanager.Message) int64 { return cfg.DefaultChatID() },
 		Processor: processor,
 	}
 	if err := dispatcher.Start(runCtx); err != nil {

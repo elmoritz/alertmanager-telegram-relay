@@ -88,6 +88,21 @@ func Do(t *testing.T, call func() error) error {
 	}
 }
 
+// Topic returns the forum topic ID from RELAY_LIVE_TOPIC_<name>, or skips
+// the test. RELAY_LIVE_CHAT_ID must then be a forum group.
+func Topic(t *testing.T, name string) int {
+	t.Helper()
+	v := os.Getenv("RELAY_LIVE_TOPIC_" + name)
+	if v == "" {
+		t.Skip("RELAY_LIVE_TOPIC_" + name + " not set")
+	}
+	id, err := strconv.Atoi(v)
+	if err != nil || id <= 0 {
+		t.Fatal("RELAY_LIVE_TOPIC_" + name + " is not a topic ID")
+	}
+	return id
+}
+
 // Interactive skips the test unless RELAY_LIVE_INTERACTIVE=1: it needs
 // someone to press a button in the test chat.
 func Interactive(t *testing.T) {

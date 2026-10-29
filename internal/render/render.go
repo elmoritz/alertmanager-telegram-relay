@@ -311,6 +311,10 @@ func alertname(d Data) string {
 
 // severity is the group's severity: the common label, else the most severe
 // firing alert's.
+// Severity is the group's severity as the templates see it: the common
+// severity label, else the most severe firing alert's.
+func Severity(d Data) string { return severity(d) }
+
 func severity(d Data) string {
 	if s := d.CommonLabels["severity"]; s != "" {
 		return s

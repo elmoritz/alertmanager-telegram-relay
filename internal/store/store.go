@@ -33,10 +33,12 @@ type Store struct {
 // Incident is one Alertmanager group, from its first firing notification until
 // it resolves, and the Telegram message that shows it.
 type Incident struct {
-	GroupKey  string    `json:"groupKey"`
-	ChatID    int64     `json:"chatId"`
-	MessageID int       `json:"messageId"`
-	OpenedAt  time.Time `json:"openedAt"`
+	GroupKey  string `json:"groupKey"`
+	ChatID    int64  `json:"chatId"`
+	MessageID int    `json:"messageId"`
+	// ThreadID is the forum topic the message is in; 0 for none.
+	ThreadID int       `json:"threadId,omitempty"`
+	OpenedAt time.Time `json:"openedAt"`
 	// LastSeen is when the last notification for this incident arrived.
 	LastSeen time.Time `json:"lastSeen"`
 	// Firing holds the keys of the alerts firing at the last notification.

@@ -11,8 +11,9 @@ built-in Telegram receiver cannot do:
 - **Made for phones.** Host and age in the headline, long descriptions
   collapsed, never over Telegram's length limit.
 
-> **Status:** v0.2: one message per incident, edited on resolve, with
-> silence/unsilence, Grafana/runbook and copy buttons. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> **Status:** v0.3: one message per incident, edited on resolve, with
+> silence/unsilence, Grafana/runbook and copy buttons; routing to chats and
+> forum topics by labels, quiet severities and quiet hours. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
 > and roadmap, and [examples/](examples/) for a Compose setup, the
 > Alertmanager receiver and the fallback alerts.
 

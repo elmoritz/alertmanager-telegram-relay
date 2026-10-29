@@ -56,6 +56,9 @@ type Error struct {
 	Code        int
 	Description string
 	RetryAfter  time.Duration
+	// MigrateToChatID is the new ID of a group that was upgraded to a
+	// supergroup (e.g. when topics were turned on), or 0.
+	MigrateToChatID int64
 
 	cause error // only context.Canceled / context.DeadlineExceeded, never the raw error
 }
@@ -77,7 +80,8 @@ type response struct {
 	ErrorCode   int             `json:"error_code"`
 	Description string          `json:"description"`
 	Parameters  struct {
-		RetryAfter int `json:"retry_after"`
+		RetryAfter      int   `json:"retry_after"`
+		MigrateToChatID int64 `json:"migrate_to_chat_id"`
 	} `json:"parameters"`
 }
 
@@ -120,6 +124,7 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		if r.Parameters.RetryAfter > 0 {
 			e.RetryAfter = time.Duration(r.Parameters.RetryAfter) * time.Second
 		}
+		e.MigrateToChatID = r.Parameters.MigrateToChatID
 		if e.Code == http.StatusTooManyRequests {
 			c.observe(method, "ratelimited")
 		} else {
@@ -195,7 +200,9 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 // Message is a text message to send. Text is Telegram HTML.
 type Message struct {
 	ChatID int64
-	Text   string
+	// ThreadID, if non-zero, sends into that forum topic.
+	ThreadID int
+	Text     string
 	// ReplyTo, if non-zero, makes the message a reply. If the original is
 	// gone, the message is sent anyway, without the reply.
 	ReplyTo int
@@ -289,6 +296,7 @@ type linkPreviewOptions struct {
 func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	params := struct {
 		ChatID              int64              `json:"chat_id"`
+		MessageThreadID     int                `json:"message_thread_id,omitempty"`
 		Text                string             `json:"text"`
 		ParseMode           string             `json:"parse_mode"`
 		LinkPreviewOptions  linkPreviewOptions `json:"link_preview_options"`
@@ -298,6 +306,7 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 		ReplyMarkup         *Keyboard          `json:"reply_markup,omitempty"`
 	}{
 		ChatID:              m.ChatID,
+		MessageThreadID:     m.ThreadID,
 		Text:                m.Text,
 		ParseMode:           "HTML",
 		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
@@ -410,6 +419,22 @@ func IsMessageGone(err error) bool {
 	return hasDescription(err, "message to edit not found") ||
 		hasDescription(err, "message can't be edited") ||
 		hasDescription(err, "MESSAGE_ID_INVALID")
+}
+
+// MigratedTo returns the new chat ID if a call failed because the group was
+// upgraded to a supergroup, else 0.
+func MigratedTo(err error) int64 {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.MigrateToChatID
+	}
+	return 0
+}
+
+// IsThreadGone reports whether a send failed because its forum topic does
+// not exist (deleted, or a wrong ID in ROUTES).
+func IsThreadGone(err error) bool {
+	return hasDescription(err, "message thread not found")
 }
 
 // IsFormatError reports whether Telegram rejected the text itself: HTML it

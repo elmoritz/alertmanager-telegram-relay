@@ -17,6 +17,7 @@ import (
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/config"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/metrics"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/route"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/store"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/telegram"
 	"github.com/prometheus/client_golang/prometheus"
@@ -33,6 +34,8 @@ type call struct {
 	ReplyTo             int
 	DisableNotification bool
 	Keyboard            *telegram.Keyboard
+	ChatID              int64
+	ThreadID            int
 }
 
 func (c call) String() string {
@@ -63,6 +66,8 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	var p struct {
 		Text                string             `json:"text"`
+		ChatID              int64              `json:"chat_id"`
+		ThreadID            int                `json:"message_thread_id"`
 		MessageID           int                `json:"message_id"`
 		DisableNotification bool               `json:"disable_notification"`
 		ReplyMarkup         *telegram.Keyboard `json:"reply_markup"`
@@ -72,7 +77,7 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &p)
-	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup}
+	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID}
 	if p.ReplyParameters != nil {
 		c.ReplyTo = p.ReplyParameters.MessageID
 	}
@@ -138,6 +143,7 @@ func newEnv(t *testing.T) *env {
 		Metrics:   metrics.New(func() float64 { return 0 }, func() float64 { return 0 }),
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Reminders: config.RemindersReply,
+		Router:    route.Router{Default: route.Target{ChatID: chat}},
 		RetryFor:  10 * time.Minute,
 		Now:       func() time.Time { return e.now },
 		Sleep: func(_ context.Context, d time.Duration) error {
@@ -410,7 +416,7 @@ func TestCancelledKeepsJobQueued(t *testing.T) {
 
 func TestDispatcherDeliversInOrderAndReplaysAfterRestart(t *testing.T) {
 	e := newEnv(t)
-	d := &Dispatcher{Store: e.store, Processor: e.proc, Log: e.proc.Log, Route: func(*alertmanager.Message) int64 { return chat }}
+	d := &Dispatcher{Store: e.store, Processor: e.proc, Log: e.proc.Log}
 
 	// Queued before Start, as if left over from a previous run.
 	for _, m := range []*alertmanager.Message{msg("a"), msg("a", "b"), msg("a-", "b-")} {

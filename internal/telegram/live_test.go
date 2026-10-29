@@ -316,3 +316,25 @@ func TestLiveCallbackQuery(t *testing.T) {
 	}
 	t.Fatal("no button press within 90 seconds")
 }
+
+// Sends into a forum topic, replies there, and checks the error the relay
+// falls back on when a topic does not exist.
+func TestLiveTopics(t *testing.T) {
+	tg, chat := livetest.Telegram(t)
+	infra := livetest.Topic(t, "INFRA")
+	c := ctx(t)
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, ThreadID: infra, Text: livetest.Prefix + ": into the Infra topic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := send(t, tg, c, telegram.Message{ChatID: chat, ThreadID: infra, Text: livetest.Prefix + ": reply in the topic", ReplyTo: id}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = send(t, tg, c, telegram.Message{ChatID: chat, ThreadID: 999999, Text: livetest.Prefix + ": unknown topic"})
+	if err == nil {
+		t.Fatal("sending to an unknown topic succeeded")
+	}
+	if !telegram.IsThreadGone(err) || telegram.IsRetryable(err) {
+		t.Errorf("IsThreadGone = %v, IsRetryable = %v for %v", telegram.IsThreadGone(err), telegram.IsRetryable(err), err)
+	}
+}
