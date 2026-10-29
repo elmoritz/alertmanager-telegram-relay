@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 implemented, v0.2 in progress** (see §13); later milestones are design. This
+Status: **v0.1 and v0.2 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -358,11 +358,11 @@ names the variable but never echoes its value.
    allowlists, default template with length control, incidents in bbolt,
    send/edit/reply lifecycle (§4), healthz/metrics, Dockerfile, CI, release
    workflow, examples.
-2. **v0.2, buttons (in progress):** long polling, callback handling,
+2. **v0.2, buttons (done):** long polling, callback handling,
    silence/unsilence, Grafana/runbook URL buttons (released as v0.2.0, live
    check passed); `PROTECT_CONTENT`, coloured and disabled buttons, copy
    button (v0.2.1, issues #1–#4); resolving groups silenced from Telegram,
-   which Alertmanager does not report (v0.2.1).
+   which Alertmanager does not report (v0.2.1). Live check passed.
 3. **v0.3, routing:** quiet severities, multiple chats and forum topics.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
 
