@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 and v0.2 implemented** (see §13); later milestones are design. This
+Status: **v0.1 to v0.3 implemented, v0.4 in progress** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -506,9 +506,9 @@ names the variable but never echoes its value.
    private chats (#9) are deferred: they need BotFather's threaded mode,
    which may cost a fee, and are reported to fail.
 4. **v0.4, extras (in progress):** `/alerts` and `/silences` as ephemeral
-   answers (#10) and the daily digest (#12) for v0.4.0; graph images (§8)
-   and the rich-message evaluation (#11) for v0.4.1; topics in private
-   chats (#9) still open.
+   answers (#10) and the daily digest (#12) in v0.4.0 (live check passed);
+   graph images (§8) and the rich-message evaluation (#11) for v0.4.1;
+   topics in private chats (#9) still open.
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check
