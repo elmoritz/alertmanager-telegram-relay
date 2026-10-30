@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -68,12 +69,13 @@ func (b *Buttons) handleCommand(ctx context.Context, msg *telegram.IncomingMessa
 	log := b.Log.With("action", "command_"+cmd, "user_id", msg.From.ID)
 	var text string
 	var kb *telegram.Keyboard
+	var actions []*store.Action
 	var err error
 	switch cmd {
 	case cmdAlerts:
 		text, err = b.alertsAnswer(msg.Chat.ID)
 	case cmdSilences:
-		text, kb, err = b.silencesAnswer(ctx, msg.Chat.ID, msg.From.ID)
+		text, kb, actions, err = b.silencesAnswer(ctx, msg.Chat.ID, msg.From.ID)
 	}
 	if err != nil {
 		log.Warn("answering a command failed", "err", err)
@@ -82,10 +84,12 @@ func (b *Buttons) handleCommand(ctx context.Context, msg *telegram.IncomingMessa
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	out := telegram.Message{ChatID: msg.Chat.ID, ThreadID: msg.ThreadID, Text: text, Keyboard: kb, Silent: true, EphemeralTo: msg.From.ID}
-	if _, err := p.Telegram.SendMessage(ctx, out); err != nil {
+	id, err := p.Telegram.SendMessage(ctx, out)
+	if err != nil {
 		log.Warn("sending a command answer failed", "err", err)
 		return
 	}
+	b.rememberAnswer(actions, id)
 	log.Info("command answered")
 }
 
@@ -103,14 +107,14 @@ func (b *Buttons) alertsAnswer(chat int64) (string, error) {
 // from Telegram get an ↩️ button, so nobody ends someone's maintenance
 // silence by accident; each button works only for the user who asked, in
 // this chat, for endSilenceTTL.
-func (b *Buttons) silencesAnswer(ctx context.Context, chat, user int64) (string, *telegram.Keyboard, error) {
+func (b *Buttons) silencesAnswer(ctx context.Context, chat, user int64) (string, *telegram.Keyboard, []*store.Action, error) {
 	p := b.Processor
 	if b.Alertmanager == nil {
-		return "Silences need ALERTMANAGER_URL.", nil, nil
+		return "Silences need ALERTMANAGER_URL.", nil, nil, nil
 	}
 	silences, err := b.callAlertmanagerList(ctx)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	names := p.silenceNames()
 	now := p.Now()
@@ -135,13 +139,27 @@ func (b *Buttons) silencesAnswer(ctx context.Context, chat, user int64) (string,
 		items = append(items, item)
 	}
 	if err := p.Store.PutActions(actions...); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	text, err := p.Render.Silences(items)
 	if len(kb.Rows) == 0 {
 		kb = nil
 	}
-	return text, kb, err
+	return text, kb, actions, err
+}
+
+// rememberAnswer records on the actions of a /silences answer which
+// ephemeral message they are on.
+func (b *Buttons) rememberAnswer(actions []*store.Action, ephemeralID int) {
+	if len(actions) == 0 || ephemeralID == 0 {
+		return
+	}
+	for _, a := range actions {
+		a.EphemeralMessageID = ephemeralID
+	}
+	if err := b.Processor.Store.PutActions(actions...); err != nil {
+		b.Log.Warn("storing the answer's actions failed", "err", err)
+	}
 }
 
 func (b *Buttons) callAlertmanagerList(ctx context.Context) ([]alertmanager.SilenceInfo, error) {
@@ -159,6 +177,26 @@ func (p *Processor) silenceNames() map[string]string {
 		names[inc.Silence.ID] = inc.Silence.ByName
 	}
 	return names
+}
+
+// updateAnswer re-renders the /silences answer an end button was on, so it
+// no longer lists the ended silence. Best-effort.
+func (b *Buttons) updateAnswer(ctx context.Context, log *slog.Logger, action *store.Action) {
+	if action.EphemeralMessageID == 0 {
+		return
+	}
+	text, kb, actions, err := b.silencesAnswer(ctx, action.ChatID, action.UserID)
+	if err != nil {
+		log.Debug("refreshing the silences answer failed", "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := b.Processor.Telegram.EditEphemeralMessageText(ctx, action.ChatID, action.EphemeralMessageID, action.UserID, text, kb); err != nil {
+		log.Debug("updating the silences answer failed", "err", err)
+		return
+	}
+	b.rememberAnswer(actions, action.EphemeralMessageID)
 }
 
 func matcherText(ms []alertmanager.Matcher) string {
@@ -196,6 +234,7 @@ func (b *Buttons) endSilence(ctx context.Context, cq *telegram.CallbackQuery, ac
 	log.Info("silence expired", "silence_id", action.SilenceID)
 	b.answer(ctx, cq, toastUnsilenced)
 	p.Metrics.ButtonPresses.WithLabelValues(action.Kind, "ok").Inc()
+	b.updateAnswer(ctx, log, action)
 
 	incs, _ := p.Store.Incidents(func(inc *store.Incident) bool { return inc.Silence != nil && inc.Silence.ID == action.SilenceID })
 	for _, found := range incs {

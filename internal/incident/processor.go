@@ -27,6 +27,7 @@ type Telegram interface {
 	EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *telegram.Keyboard) error
 	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
 	PinChatMessage(ctx context.Context, chatID int64, messageID int) error
+	EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *telegram.Keyboard) error
 }
 
 // Processor carries out the plan for one notification. It also renders and

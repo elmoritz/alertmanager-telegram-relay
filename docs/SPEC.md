@@ -331,7 +331,9 @@ Inline keyboard under every firing message:
   get a [↩️ End silence N] button, so nobody ends someone's maintenance
   silence by accident. A button works for 15 minutes, once, and only for the
   admin who asked, in that chat; if the silence belongs to an open incident,
-  its message is updated as after ↩️ Unsilence.
+  its message is updated as after ↩️ Unsilence. The answer itself is then
+  re-rendered in place (`editEphemeralMessageText`), without the ended
+  silence. Ephemeral answers stay until their reader dismisses them.
 - **Daily digest** (#12): with `DIGEST_AT=08:30` (in `TIMEZONE`), each chat
   gets one quiet message a day, as soon as that time has passed: incidents
   resolved in the last 24 h (count, the 10 longest), what still fires (the 5

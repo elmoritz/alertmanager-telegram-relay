@@ -358,6 +358,28 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	return res.MessageID, nil
 }
 
+// EditEphemeralMessageText replaces the text and keyboard of an ephemeral
+// message sent to receiver; a nil keyboard removes it.
+func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *Keyboard) error {
+	if kb == nil {
+		kb = noKeyboard
+	}
+	params := struct {
+		ChatID             int64              `json:"chat_id"`
+		EphemeralMessageID int                `json:"ephemeral_message_id"`
+		ReceiverUserID     int64              `json:"receiver_user_id"`
+		Text               string             `json:"text"`
+		ParseMode          string             `json:"parse_mode"`
+		LinkPreviewOptions linkPreviewOptions `json:"link_preview_options"`
+		ReplyMarkup        *Keyboard          `json:"reply_markup"`
+	}{chatID, ephemeralID, receiver, text, "HTML", linkPreviewOptions{IsDisabled: true}, kb}
+	err := c.call(ctx, "editEphemeralMessageText", params, nil)
+	if hasDescription(err, "message is not modified") {
+		return nil
+	}
+	return err
+}
+
 // Command is a bot command for SetCommands.
 type Command struct {
 	Command     string `json:"command"`

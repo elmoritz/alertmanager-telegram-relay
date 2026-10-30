@@ -47,6 +47,7 @@ func (p *Processor) CheckDigest(ctx context.Context) {
 		if err := p.Store.SetLastDigest(chat, day); err != nil {
 			p.Log.Warn("recording the daily digest failed", "err", err)
 		}
+		p.Log.Info("daily digest sent")
 	}
 }
 

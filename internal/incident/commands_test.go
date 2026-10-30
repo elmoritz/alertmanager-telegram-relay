@@ -89,9 +89,14 @@ func TestSilencesCommand(t *testing.T) {
 	if toast != toastUnsilenced || len(e.am.expired) != 1 {
 		t.Fatalf("toast %q, expired %v", toast, e.am.expired)
 	}
-	expectCalls(t, calls, "editMessageText(#1)") // the incident's message, no longer silenced
-	if strings.Contains(calls[0].Text, "silenced") {
-		t.Errorf("text = %q", calls[0].Text)
+	// The answer is updated to the remaining silences (only the foreign
+	// one, without buttons), then the incident's message.
+	expectCalls(t, calls, "editEphemeralMessageText", "editMessageText(#1)")
+	if a := calls[0]; !strings.Contains(a.Text, "1 active silence") || strings.Contains(a.Text, "DiskAlmostFull") || (a.Keyboard != nil && len(a.Keyboard.Rows) > 0) {
+		t.Errorf("updated answer = %q, keyboard %+v", a.Text, a.Keyboard)
+	}
+	if strings.Contains(calls[1].Text, "silenced") {
+		t.Errorf("text = %q", calls[1].Text)
 	}
 	if toast, _ := e.press(end, chat, 1, admin); toast != toastExpired {
 		t.Errorf("second press: %q", toast)

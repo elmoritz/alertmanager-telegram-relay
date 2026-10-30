@@ -121,6 +121,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if c.Method == "sendMessage" && c.EphemeralTo != 0 {
+		fmt.Fprintf(w, `{"ok":true,"result":{"message_id":0,"ephemeral_message_id":%d}}`, 900+n)
+		return
+	}
 	if c.Method == "sendMessage" {
 		f.nextID++
 		fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, f.nextID)

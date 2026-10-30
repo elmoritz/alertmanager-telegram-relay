@@ -156,6 +156,9 @@ type Action struct {
 	// its ephemeral answer was sent to.
 	ChatID int64 `json:"chatId,omitempty"`
 	UserID int64 `json:"userId,omitempty"`
+	// EphemeralMessageID is the /silences answer the button is on, so it
+	// can be updated after the press.
+	EphemeralMessageID int `json:"ephemeralMessageId,omitempty"`
 }
 
 // Open opens (creating if needed) the state file in dir.
