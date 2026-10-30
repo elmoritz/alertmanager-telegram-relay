@@ -58,6 +58,7 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 		for range cfg.Durations {
 			want = append(want, store.ActionSilence)
 		}
+		want = append(want, store.ActionCustom)
 	}
 	if inc.Ack != nil {
 		want = append(want, store.ActionRelease)
@@ -91,6 +92,8 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 		case store.ActionSilence:
 			d, _ := next()
 			add(&store.Action{Kind: kind, Duration: d}, "🔕 "+shortDuration(d))
+		case store.ActionCustom:
+			add(&store.Action{Kind: kind}, "⏱ Custom…")
 		case store.ActionAck:
 			add(&store.Action{Kind: kind}, "👀 I'm on it")
 		case store.ActionRelease:
@@ -129,16 +132,25 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 		}
 		kb.Rows = append(kb.Rows, []telegram.Button{{Text: label, Disabled: true}})
 	}
-	var row []telegram.Button
+	// Silence buttons in one row, "I'm on it" / "Release" in the next: four
+	// buttons in a row are too narrow on a phone.
+	var silenceRow, ackRow []telegram.Button
 	for _, b := range inc.Buttons {
 		btn := telegram.Button{Text: b.Label, Data: b.ActionID}
-		if b.Kind == store.ActionUnsilence {
+		switch b.Kind {
+		case store.ActionAck, store.ActionRelease:
+			ackRow = append(ackRow, btn)
+		case store.ActionUnsilence:
 			btn.Style = unsilenceStyle
+			fallthrough
+		default:
+			silenceRow = append(silenceRow, btn)
 		}
-		row = append(row, btn)
 	}
-	if len(row) > 0 {
-		kb.Rows = append(kb.Rows, row)
+	for _, row := range [][]telegram.Button{silenceRow, ackRow} {
+		if len(row) > 0 {
+			kb.Rows = append(kb.Rows, row)
+		}
 	}
 	if withLinks {
 		if links := p.links(m); len(links) > 0 {

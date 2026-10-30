@@ -61,6 +61,10 @@ func (b *Buttons) HandleUpdate(ctx context.Context, u telegram.Update) {
 		b.handleReaction(ctx, u.MessageReaction)
 		return
 	}
+	if u.Message != nil {
+		b.handleMessage(ctx, u.Message)
+		return
+	}
 	cq := u.CallbackQuery
 	if cq == nil {
 		return // nothing else is requested; drop silently
@@ -136,6 +140,8 @@ func (b *Buttons) press(ctx context.Context, cq *telegram.CallbackQuery) {
 		toast, changed = b.silence(ctx, log, inc, action, cq.From, now)
 	case store.ActionUnsilence:
 		toast, changed = b.unsilence(ctx, log, inc, action)
+	case store.ActionCustom:
+		toast = b.promptCustom(ctx, log, inc, cq.From)
 	case store.ActionAck:
 		toast, changed = toastAcked, b.ack(log, inc, cq.From, now)
 	case store.ActionRelease:
@@ -162,23 +168,45 @@ func (b *Buttons) silence(ctx context.Context, log *slog.Logger, inc *store.Inci
 		p.Metrics.ButtonPresses.WithLabelValues(action.Kind, "stale").Inc()
 		return toastExpired, false
 	}
+	if err := b.createSilence(ctx, log, inc, action.Duration, "", user, now); err != nil {
+		p.Metrics.ButtonPresses.WithLabelValues(action.Kind, "error").Inc()
+		return toastUnreachable, false
+	}
+	return "Silenced for " + shortDuration(action.Duration) + ".", true
+}
+
+// createSilence silences inc's group for d, with matchers from its stored
+// group labels only (SECURITY.md §3), and records it on inc. A silence that
+// was active before is expired afterwards, so the new one replaces it.
+// reason, if any, goes before the relay's own comment.
+func (b *Buttons) createSilence(ctx context.Context, log *slog.Logger, inc *store.Incident, d time.Duration, reason string, user telegram.User, now time.Time) error {
+	comment := silenceComment
+	if reason != "" {
+		comment = reason + " (" + silenceComment + ")"
+	}
 	id, err := b.callAlertmanager(ctx, func(ctx context.Context) (string, error) {
 		return b.Alertmanager.CreateSilence(ctx, alertmanager.Silence{
-			Matchers:  matchers,
+			Matchers:  silenceMatchers(inc.GroupLabels),
 			StartsAt:  now,
-			EndsAt:    now.Add(action.Duration),
+			EndsAt:    now.Add(d),
 			CreatedBy: telegramUser(user.ID),
-			Comment:   silenceComment,
+			Comment:   comment,
 		})
 	})
 	if err != nil {
-		p.Metrics.ButtonPresses.WithLabelValues(action.Kind, "error").Inc()
 		log.Warn("creating silence failed", "err", err)
-		return toastUnreachable, false
+		return err
 	}
-	log.Info("silence created", "silence_id", id, "duration", action.Duration.String())
-	inc.Silence = &store.Silence{ID: id, Until: now.Add(action.Duration), ByID: user.ID, ByName: user.FirstName}
-	return "Silenced for " + shortDuration(action.Duration) + ".", true
+	log.Info("silence created", "silence_id", id, "duration", d.String())
+	if old := inc.Silence; old != nil {
+		if _, err := b.callAlertmanager(ctx, func(ctx context.Context) (string, error) {
+			return "", b.Alertmanager.ExpireSilence(ctx, old.ID)
+		}); err != nil && !errors.Is(err, alertmanager.ErrSilenceNotFound) {
+			log.Warn("expiring the replaced silence failed", "silence_id", old.ID, "err", err)
+		}
+	}
+	inc.Silence = &store.Silence{ID: id, Until: now.Add(d), ByID: user.ID, ByName: user.FirstName}
+	return nil
 }
 
 // unsilence expires the silence. It reports the toast and whether inc changed.

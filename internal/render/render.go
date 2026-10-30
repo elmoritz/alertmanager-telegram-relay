@@ -151,11 +151,18 @@ func New(customFile string, loc *time.Location, now func() time.Time) (*Renderer
 		}
 	}
 	r.tmpl = t
-	for _, d := range sampleData(now()) {
-		for _, name := range []string{"message", "added", "reminder", "resolve_reply"} {
+	samples := sampleData(now())
+	for _, d := range samples {
+		for _, name := range []string{"message", "added", "reminder", "escalation", "resolve_reply"} {
 			if _, err := r.execute(name, d); err != nil {
 				return nil, fmt.Errorf("template %q fails on a sample notification: %w", name, err)
 			}
+		}
+	}
+	items := []BoardItem{{Data: samples[0], URL: "https://t.me/c/1/2"}, {Data: samples[1]}}
+	for _, it := range [][]BoardItem{items, nil} {
+		if _, err := r.Board(it, now()); err != nil {
+			return nil, fmt.Errorf("template \"board\" fails on sample incidents: %w", err)
 		}
 	}
 	return r, nil
@@ -190,6 +197,42 @@ func (r *Renderer) Added(d Data) (string, error) {
 // Reminder renders the reply to a repeated notification with no change.
 func (r *Renderer) Reminder(d Data) (string, error) {
 	return r.reply("reminder", d, "⏰ still firing")
+}
+
+// BoardItem is one firing incident on the status board.
+type BoardItem struct {
+	Data Data
+	URL  string // link to the incident's message; empty if the chat has no links
+}
+
+// BoardData is the status board's template data.
+type BoardData struct {
+	Items         []BoardItem
+	More          int // incidents left out for length
+	AllClearSince time.Time
+}
+
+// maxBoardItems is how many incidents the board lists before "…and N more".
+const maxBoardItems = 30
+
+// Board renders the status board (template "board"), dropping incidents
+// from the end until it fits.
+func (r *Renderer) Board(items []BoardItem, allClearSince time.Time) (string, error) {
+	for i := range items {
+		items[i].Data.Now = r.now()
+		items[i].Data.Limits = steps[len(steps)-1]
+	}
+	n := min(len(items), maxBoardItems)
+	for {
+		s, err := r.execute("board", BoardData{Items: items[:n], More: len(items) - n, AllClearSince: allClearSince})
+		if err != nil {
+			return "", err
+		}
+		if Len(s) <= MaxLen || n == 0 {
+			return s, nil
+		}
+		n = n * 3 / 4
+	}
 }
 
 // Escalation renders the loud reply to a critical incident nobody has
@@ -236,7 +279,7 @@ func (r *Renderer) Minimal(d Data) string {
 	return b.String()
 }
 
-func (r *Renderer) execute(name string, d Data) (string, error) {
+func (r *Renderer) execute(name string, d any) (string, error) {
 	var buf bytes.Buffer
 	if err := r.tmpl.ExecuteTemplate(&buf, name, d); err != nil {
 		return "", err

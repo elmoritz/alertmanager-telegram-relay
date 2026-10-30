@@ -50,4 +50,14 @@
 
 {{- define "escalation"}}🚨 still unacknowledged{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}
 
+{{- define "board" -}}
+{{if .Items}}🚦 <b>{{len .Items}}{{with .More}} + {{.}}{{end}} firing</b>
+{{range .Items}}
+{{template "severity_emoji" (severity .Data)}} {{if .URL}}<a href="{{.URL}}">{{template "title" .Data}}</a>{{else}}{{template "title" .Data}}{{end}}
+{{- with .Data.Silence}} 😴{{end}}{{with .Data.Ack}} 👀{{end}}{{end}}
+{{- with .More}}
+…and {{.}} more{{end}}
+{{- else}}✅ <b>All clear</b>{{if not .AllClearSince.IsZero}} since {{tgtime .AllClearSince "wt"}}{{end}}{{end}}
+{{- end}}
+
 {{- define "resolve_reply"}}✅ resolved{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}

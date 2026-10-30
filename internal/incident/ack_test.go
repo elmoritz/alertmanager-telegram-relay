@@ -28,7 +28,7 @@ func TestAckAndRelease(t *testing.T) {
 	if !strings.Contains(calls[0].Text, "👀 Alice is on it since") {
 		t.Errorf("text = %q", calls[0].Text)
 	}
-	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,↩️ Release" {
+	if got := strings.Join(row(calls[0].Keyboard, 1), ","); got != "↩️ Release" {
 		t.Errorf("row = %q", got)
 	}
 	if got := e.reactions(); got != "#1 👀" {

@@ -12,9 +12,10 @@ built-in Telegram receiver cannot do:
   collapsed, never over Telegram's length limit.
 
 > **Status:** v0.3: one message per incident, edited on resolve, with
-> silence/unsilence, "I'm on it", Grafana/runbook and copy buttons; routing
-> to chats and forum topics by labels, quiet severities and quiet hours;
-> escalation of unacknowledged critical alerts. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> silence/unsilence (also for a custom time by replying), "I'm on it",
+> Grafana/runbook and copy buttons; routing to chats and forum topics by
+> labels, quiet severities and quiet hours; escalation of unacknowledged
+> critical alerts; an optional pinned status board. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
 > and roadmap, and [examples/](examples/) for a Compose setup, the
 > Alertmanager receiver and the fallback alerts.
 

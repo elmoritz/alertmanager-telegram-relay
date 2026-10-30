@@ -59,6 +59,11 @@ the Telegram account that owns the bot.
   The same holds for a reaction that the relay acts on: allowed chat AND
   allowed user, on a message of the relay's own; anonymous reactions (made on
   behalf of a chat, with no user) are ignored.
+- As a chat administrator the bot receives every message in its groups. The
+  relay acts only on a reply to one of its own messages, from an allowed user
+  in an allowed chat; every other message is dropped without being logged,
+  stored or answered. The text of a reply is parsed strictly (a duration and
+  an optional reason) and never used to build matchers.
 - Updates from anywhere else are dropped silently: no reply, no error message,
   no `answerCallbackQuery` text that reveals anything. They are counted in a
   metric (`relay_telegram_updates_rejected_total`) without the IDs.

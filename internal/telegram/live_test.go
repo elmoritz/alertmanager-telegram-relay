@@ -359,3 +359,17 @@ func TestLiveReactions(t *testing.T) {
 		}
 	}
 }
+
+// The status board is pinned without notification; the bot needs the right
+// to pin messages.
+func TestLivePin(t *testing.T) {
+	tg, chat := livetest.Telegram(t)
+	c := ctx(t)
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": pinned, then unpinned by hand", Silent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := livetest.Do(t, func() error { return tg.PinChatMessage(c, chat, id) }); err != nil {
+		t.Errorf("pin: %v", err)
+	}
+}

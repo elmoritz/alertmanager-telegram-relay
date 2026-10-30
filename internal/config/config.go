@@ -63,6 +63,7 @@ type Config struct {
 	QuietHours      *route.Window // nil: none
 	// EscalateAfter is ESCALATE_AFTER; 0 turns escalation off.
 	EscalateAfter time.Duration
+	StatusBoard   bool
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -196,6 +197,9 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		default:
 			c.QuietSeverities = append(c.QuietSeverities, s)
 		}
+	}
+	if c.StatusBoard, err = strconv.ParseBool(str("STATUS_BOARD", "false")); err != nil {
+		fail(fmt.Errorf("STATUS_BOARD: %w", err))
 	}
 	if v := str("ESCALATE_AFTER", ""); v != "" {
 		d, err := time.ParseDuration(v)
@@ -338,6 +342,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Any("quiet_severities", c.QuietSeverities),
 		slog.Bool("quiet_hours", c.QuietHours != nil),
 		slog.String("escalate_after", c.EscalateAfter.String()),
+		slog.Bool("status_board", c.StatusBoard),
 	)
 }
 

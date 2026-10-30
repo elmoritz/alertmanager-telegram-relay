@@ -322,3 +322,40 @@ func TestTemplateErrorFallsBackToMinimal(t *testing.T) {
 		t.Errorf("fallback message = %q", msg)
 	}
 }
+
+func TestBoard(t *testing.T) {
+	r := renderer(t, "")
+	firing := NewData(fixture(t, "firing_single"))
+	group := NewData(fixture(t, "firing_group"))
+	group.Silence = &Silence{Until: testNow.Add(time.Hour), By: "Alice"}
+	group.Ack = &Ack{Since: testNow, By: "Bob"}
+	hostile := NewData(fixture(t, "hostile"))
+
+	got, err := r.Board([]BoardItem{
+		{Data: firing, URL: "https://t.me/c/1234567890/42"},
+		{Data: group, URL: "https://t.me/c/1234567890/7/43"},
+		{Data: hostile},
+	}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "board", got+"\n")
+	// The board's only links are the relay's own t.me links; everything else
+	// must be as well-formed as a message.
+	assertWellFormed(t, regexp.MustCompile(`<a href="https://t\.me/c/[0-9/]+">|</a>`).ReplaceAllString(got, ""))
+
+	clear, err := r.Board(nil, testNow)
+	if err != nil || !strings.HasPrefix(clear, "✅ <b>All clear</b> since <tg-time") {
+		t.Errorf("all clear = %q, %v", clear, err)
+	}
+
+	var many []BoardItem
+	for i := range 100 {
+		d := NewData(&alertmanager.Message{Status: alertmanager.StatusFiring, Alerts: []alertmanager.Alert{bigAlert(i, strings.Repeat("😀", 50))}})
+		many = append(many, BoardItem{Data: d, URL: "https://t.me/c/1234567890/42"})
+	}
+	long, err := r.Board(many, time.Time{})
+	if err != nil || Len(long) > MaxLen || !strings.Contains(long, "more") {
+		t.Errorf("long board: len %d, err %v", Len(long), err)
+	}
+}

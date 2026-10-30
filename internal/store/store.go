@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -20,6 +21,7 @@ var (
 	bucketIncidents = []byte("incidents")
 	bucketQueue     = []byte("queue")
 	bucketActions   = []byte("actions")
+	bucketBoards    = []byte("boards")
 )
 
 // FileName is the state file inside STATE_DIR.
@@ -68,6 +70,9 @@ type Incident struct {
 	Escalations          int       `json:"escalations,omitempty"`
 	LastEscalation       time.Time `json:"lastEscalation,omitzero"`
 	EscalationMessageIDs []int     `json:"escalationMessageIds,omitempty"`
+	// PromptMessageIDs are the "reply with a duration" prompts sent for a
+	// custom silence; a reply to one counts as a reply to the incident.
+	PromptMessageIDs []int `json:"promptMessageIds,omitempty"`
 	// Reaction is the bot's current reaction on the message ("" for none).
 	Reaction string `json:"reaction,omitempty"`
 }
@@ -129,6 +134,7 @@ const (
 	ActionUnsilence = "unsilence"
 	ActionAck       = "ack"
 	ActionRelease   = "release"
+	ActionCustom    = "custom"
 )
 
 // Action is what a callback button does. Buttons carry only the action's
@@ -152,7 +158,7 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("opening state file: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions} {
+		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions, bucketBoards} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -263,6 +269,48 @@ func (s *Store) ExpireIncidents(cutoff time.Time) (int, error) {
 		return 0, fmt.Errorf("expiring incidents: %w", err)
 	}
 	return n, nil
+}
+
+// Board is a chat's pinned status board (STATUS_BOARD).
+type Board struct {
+	ChatID    int64  `json:"chatId"`
+	MessageID int    `json:"messageId"`
+	TextHash  string `json:"textHash"`
+	// AllClearSince is when the last incident in the chat closed; zero while
+	// something fires.
+	AllClearSince time.Time `json:"allClearSince,omitzero"`
+}
+
+// Board returns the chat's status board, or nil if it has none.
+func (s *Store) Board(chatID int64) (*Board, error) {
+	var b *Board
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(bucketBoards).Get([]byte(strconv.FormatInt(chatID, 10)))
+		if v == nil {
+			return nil
+		}
+		b = &Board{}
+		return json.Unmarshal(v, b)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading board: %w", err)
+	}
+	return b, nil
+}
+
+// PutBoard stores a chat's status board.
+func (s *Store) PutBoard(b *Board) error {
+	v, err := json.Marshal(b)
+	if err != nil {
+		return err
+	}
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketBoards).Put([]byte(strconv.FormatInt(b.ChatID, 10)), v)
+	})
+	if err != nil {
+		return fmt.Errorf("storing board: %w", err)
+	}
+	return nil
 }
 
 // Incidents returns the open incidents for which match is true. The

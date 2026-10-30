@@ -152,13 +152,16 @@ func TestKeyboardOnNewMessage(t *testing.T) {
 	calls := e.handle(m)
 
 	kb := calls[0].Keyboard
-	if got := strings.Join(row(kb, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" {
+	if got := strings.Join(row(kb, 0), ","); got != "🔕 1h,🔕 24h,⏱ Custom…" {
 		t.Errorf("silence row = %q", got)
 	}
-	if got := strings.Join(row(kb, 1), ","); got != "📈 Grafana,📖 Runbook" {
+	if got := strings.Join(row(kb, 1), ","); got != "👀 I'm on it" {
+		t.Errorf("ack row = %q", got)
+	}
+	if got := strings.Join(row(kb, 2), ","); got != "📈 Grafana,📖 Runbook" {
 		t.Errorf("link row = %q", got)
 	}
-	if u := kb.Rows[1][0].URL; u != "https://grafana.example.com" {
+	if u := kb.Rows[2][0].URL; u != "https://grafana.example.com" {
 		t.Errorf("javascript dashboard_url should fall back to GRAFANA_URL, got %q", u)
 	}
 	data := button(t, kb, "🔕 1h")
@@ -213,7 +216,7 @@ func TestRejectedCopyButtonFallsBack(t *testing.T) {
 	m.Alerts[0].Annotations["copy_command"] = "journalctl -u foo"
 	calls := e.handle(m)
 	expectCalls(t, calls, "sendMessage", "sendMessage")
-	if got := strings.Join(row(calls[1].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" || len(calls[1].Keyboard.Rows) != 1 {
+	if got := strings.Join(row(calls[1].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,⏱ Custom…" || len(calls[1].Keyboard.Rows) != 2 {
 		t.Errorf("fallback keyboard = %+v", calls[1].Keyboard)
 	}
 }
@@ -313,7 +316,7 @@ func TestSilenceAndUnsilence(t *testing.T) {
 	} else if st := kb.Rows[0][0]; !st.Disabled || st.Data != "" {
 		t.Errorf("status button must be disabled and inert: %+v", st)
 	}
-	if got := strings.Join(row(kb, 1), ","); got != "↩️ Unsilence,👀 I'm on it" || kb.Rows[1][0].Style != telegram.StylePrimary {
+	if got := strings.Join(row(kb, 1), ","); got != "↩️ Unsilence" || kb.Rows[1][0].Style != telegram.StylePrimary {
 		t.Errorf("unsilence row = %q, style %q", got, kb.Rows[1][0].Style)
 	}
 
@@ -327,7 +330,7 @@ func TestSilenceAndUnsilence(t *testing.T) {
 	if toast != toastUnsilenced || len(e.am.expired) != 1 || e.am.expired[0] != "00000000-0000-4000-8000-000000000001" {
 		t.Errorf("toast %q, expired %v", toast, e.am.expired)
 	}
-	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" || strings.Contains(calls[0].Text, "silenced") {
+	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,⏱ Custom…" || strings.Contains(calls[0].Text, "silenced") {
 		t.Errorf("after unsilence: keyboard %q, text %q", got, calls[0].Text)
 	}
 	// Unsilence is single-use.
@@ -384,8 +387,14 @@ func TestRejectedLinkButtonFallsBack(t *testing.T) {
 	e := newButtonEnv(t)
 	e.proc.Buttons.ShowSource = true
 	e.tg.fail = func(c call, _ int) string {
-		if c.Keyboard != nil && len(c.Keyboard.Rows) > 1 {
-			return `{"ok":false,"error_code":400,"description":"Bad Request: inline keyboard button URL 'http://prometheus:9090/graph' is invalid: Wrong HTTP URL"}`
+		if c.Keyboard != nil {
+			for _, r := range c.Keyboard.Rows {
+				for _, b := range r {
+					if b.URL != "" {
+						return `{"ok":false,"error_code":400,"description":"Bad Request: inline keyboard button URL 'http://prometheus:9090/graph' is invalid: Wrong HTTP URL"}`
+					}
+				}
+			}
 		}
 		return ""
 	}
@@ -393,7 +402,7 @@ func TestRejectedLinkButtonFallsBack(t *testing.T) {
 	m.Alerts[0].GeneratorURL = "http://prometheus:9090/graph"
 	calls := e.handle(m)
 	expectCalls(t, calls, "sendMessage", "sendMessage")
-	if got := strings.Join(row(calls[1].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" || len(calls[1].Keyboard.Rows) != 1 {
+	if got := strings.Join(row(calls[1].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,⏱ Custom…" || len(calls[1].Keyboard.Rows) != 2 {
 		t.Errorf("fallback keyboard = %+v", calls[1].Keyboard)
 	}
 }
@@ -423,7 +432,7 @@ func TestSilenceRunsOut(t *testing.T) {
 	e.now = e.now.Add(2 * time.Hour)
 	calls := e.handle(gmsg("a"))
 	expectCalls(t, calls, "editMessageText(#1)")
-	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,👀 I'm on it" || strings.Contains(calls[0].Text, "silenced") {
+	if got := strings.Join(row(calls[0].Keyboard, 0), ","); got != "🔕 1h,🔕 24h,⏱ Custom…" || strings.Contains(calls[0].Text, "silenced") {
 		t.Errorf("after the silence ran out: keyboard %q, text %q", got, calls[0].Text)
 	}
 }
