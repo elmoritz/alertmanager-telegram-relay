@@ -68,7 +68,11 @@ the Telegram account that owns the bot.
   no `answerCallbackQuery` text that reveals anything. They are counted in a
   metric (`relay_telegram_updates_rejected_total`) without the IDs.
 - The relay only acts on messages it sent itself: a callback must reference a
-  message ID the relay has in its store.
+  message ID the relay has in its store. The one exception is an ephemeral
+  answer (seen only by the admin who asked): its buttons are bound to that
+  chat and that user instead, expire within minutes and are single-use.
+- Command answers go only to allowed users in allowed chats, as ephemeral
+  messages; commands from anyone else get no answer.
 - Updates are fetched by long polling (`getUpdates`). The relay never exposes an
   inbound endpoint to the internet and never calls `setWebhook`.
 

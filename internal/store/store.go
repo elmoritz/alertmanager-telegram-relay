@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -22,6 +23,8 @@ var (
 	bucketQueue     = []byte("queue")
 	bucketActions   = []byte("actions")
 	bucketBoards    = []byte("boards")
+	bucketHistory   = []byte("history")
+	bucketDigests   = []byte("digests")
 )
 
 // FileName is the state file inside STATE_DIR.
@@ -135,6 +138,9 @@ const (
 	ActionAck       = "ack"
 	ActionRelease   = "release"
 	ActionCustom    = "custom"
+	// ActionEndSilence is an ↩️ button in a /silences answer: it ends a
+	// silence by ID, for the user who asked, in the chat they asked in.
+	ActionEndSilence = "end_silence"
 )
 
 // Action is what a callback button does. Buttons carry only the action's
@@ -144,8 +150,12 @@ type Action struct {
 	Kind      string        `json:"kind"`
 	GroupKey  string        `json:"groupKey"`
 	Duration  time.Duration `json:"duration,omitempty"`  // silence
-	SilenceID string        `json:"silenceId,omitempty"` // unsilence
+	SilenceID string        `json:"silenceId,omitempty"` // unsilence, end_silence
 	ExpiresAt time.Time     `json:"expiresAt"`
+	// ChatID and UserID bind an end_silence action to the chat and the user
+	// its ephemeral answer was sent to.
+	ChatID int64 `json:"chatId,omitempty"`
+	UserID int64 `json:"userId,omitempty"`
 }
 
 // Open opens (creating if needed) the state file in dir.
@@ -158,7 +168,7 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("opening state file: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions, bucketBoards} {
+		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions, bucketBoards, bucketHistory, bucketDigests} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -311,6 +321,98 @@ func (s *Store) PutBoard(b *Board) error {
 		return fmt.Errorf("storing board: %w", err)
 	}
 	return nil
+}
+
+// Resolved is a closed incident, kept for the daily digest: names and
+// times only.
+type Resolved struct {
+	ChatID     int64     `json:"chatId"`
+	Alertname  string    `json:"alertname"`
+	Instance   string    `json:"instance,omitempty"`
+	OpenedAt   time.Time `json:"openedAt"`
+	ResolvedAt time.Time `json:"resolvedAt"`
+}
+
+// AddResolved records a closed incident.
+func (s *Store) AddResolved(r Resolved) error {
+	v, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketHistory)
+		seq, err := b.NextSequence()
+		if err != nil {
+			return err
+		}
+		// Keys sort by resolve time, then by sequence.
+		key := binary.BigEndian.AppendUint64(binary.BigEndian.AppendUint64(nil, uint64(r.ResolvedAt.UnixNano())), seq)
+		return b.Put(key, v)
+	})
+	if err != nil {
+		return fmt.Errorf("recording resolved incident: %w", err)
+	}
+	return nil
+}
+
+// ResolvedSince returns the incidents closed at or after since, oldest
+// first.
+func (s *Store) ResolvedSince(since time.Time) ([]Resolved, error) {
+	var out []Resolved
+	err := s.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(bucketHistory).Cursor()
+		for k, v := c.Seek(binary.BigEndian.AppendUint64(nil, uint64(since.UnixNano()))); k != nil; k, v = c.Next() {
+			var r Resolved
+			if json.Unmarshal(v, &r) == nil {
+				out = append(out, r)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading history: %w", err)
+	}
+	return out, nil
+}
+
+// PruneResolved forgets incidents closed before cutoff.
+func (s *Store) PruneResolved(cutoff time.Time) error {
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketHistory)
+		end := binary.BigEndian.AppendUint64(nil, uint64(cutoff.UnixNano()))
+		var old [][]byte
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil && bytes.Compare(k, end) < 0; k, _ = c.Next() {
+			old = append(old, append([]byte(nil), k...))
+		}
+		for _, k := range old {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("pruning history: %w", err)
+	}
+	return nil
+}
+
+// LastDigest returns the day ("2006-01-02") of the chat's last digest, or "".
+func (s *Store) LastDigest(chatID int64) (string, error) {
+	var day string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		day = string(tx.Bucket(bucketDigests).Get([]byte(strconv.FormatInt(chatID, 10))))
+		return nil
+	})
+	return day, err
+}
+
+// SetLastDigest records the day of the chat's last digest.
+func (s *Store) SetLastDigest(chatID int64, day string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketDigests).Put([]byte(strconv.FormatInt(chatID, 10)), []byte(day))
+	})
 }
 
 // Incidents returns the open incidents for which match is true. The

@@ -20,6 +20,7 @@ type Silencer interface {
 	CreateSilence(ctx context.Context, s alertmanager.Silence) (string, error)
 	ExpireSilence(ctx context.Context, id string) error
 	ActiveAlerts(ctx context.Context, labels map[string]string) (int, error)
+	ActiveSilences(ctx context.Context) ([]alertmanager.SilenceInfo, error)
 }
 
 // Answerer answers callback queries.
@@ -39,6 +40,9 @@ type Buttons struct {
 	// Enqueue queues a notification like one from Alertmanager (the
 	// dispatcher's Enqueue); CheckSilenced uses it.
 	Enqueue func(*alertmanager.Message) error
+	// BotUsername is the bot's @username, to tell "/alerts@thisbot" from a
+	// command for another bot.
+	BotUsername string
 
 	emptySince map[string]time.Time // CheckSilenced: group key → first check without alerts
 }
@@ -62,7 +66,11 @@ func (b *Buttons) HandleUpdate(ctx context.Context, u telegram.Update) {
 		return
 	}
 	if u.Message != nil {
-		b.handleMessage(ctx, u.Message)
+		if cmd, ok := b.command(u.Message.Text); ok {
+			b.handleCommand(ctx, u.Message, cmd)
+		} else {
+			b.handleMessage(ctx, u.Message)
+		}
 		return
 	}
 	cq := u.CallbackQuery
@@ -108,6 +116,10 @@ func (b *Buttons) press(ctx context.Context, cq *telegram.CallbackQuery) {
 	if action == nil {
 		p.Metrics.ButtonPresses.WithLabelValues("unknown", "stale").Inc()
 		b.answer(ctx, cq, toastExpired)
+		return
+	}
+	if action.Kind == store.ActionEndSilence {
+		b.endSilence(ctx, cq, action)
 		return
 	}
 

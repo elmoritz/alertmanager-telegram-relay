@@ -195,3 +195,31 @@ func TestActions(t *testing.T) {
 		t.Error("not deleted")
 	}
 }
+
+func TestHistory(t *testing.T) {
+	s := open(t)
+	t0 := time.Date(2026, 3, 2, 4, 0, 0, 0, time.UTC)
+	for i, name := range []string{"A", "B", "C"} {
+		if err := s.AddResolved(Resolved{ChatID: -1001234567890, Alertname: name, OpenedAt: t0, ResolvedAt: t0.Add(time.Duration(i) * time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ResolvedSince(t0.Add(time.Hour))
+	if err != nil || len(got) != 2 || got[0].Alertname != "B" || got[1].Alertname != "C" {
+		t.Fatalf("since 1h: %+v %v", got, err)
+	}
+	if err := s.PruneResolved(t0.Add(90 * time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ResolvedSince(t0); len(got) != 1 || got[0].Alertname != "C" {
+		t.Errorf("after pruning: %+v", got)
+	}
+
+	if day, _ := s.LastDigest(-1001234567890); day != "" {
+		t.Errorf("last digest = %q", day)
+	}
+	_ = s.SetLastDigest(-1001234567890, "2026-03-02")
+	if day, _ := s.LastDigest(-1001234567890); day != "2026-03-02" {
+		t.Errorf("last digest = %q", day)
+	}
+}

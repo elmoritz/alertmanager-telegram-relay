@@ -141,7 +141,7 @@ end).
   (`internal/render/default.tmpl`); a user-supplied file (`TEMPLATE_FILE`) can
   redefine any of its blocks: `message`, `firing`, `resolved`, `title`,
   `severity_emoji`, `added`, `reminder`, `escalation`, `resolve_reply`,
-  `board`. The template data
+  `board`, `silences`, `digest`. The template data
   mirrors Alertmanager's (`.Status`, `.Alerts.Firing`, `.CommonLabels`,
   `.GroupLabels`, `.CommonAnnotations`, `.ExternalURL`, `.TruncatedAlerts`) so
   existing Alertmanager templates port with little change, plus `.Added`,
@@ -314,12 +314,31 @@ Inline keyboard under every firing message:
   board lists incidents without links. At most 30 incidents are listed, then
   "…and N more"; the template block is `board`.
 
-## 6. Commands (later, optional)
+## 6. Commands and digest
 
-Only for allowed users in allowed chats; anything else ignored silently.
-
-- `/alerts`: currently firing alerts, grouped, using the same layout.
-- `/silences`: active silences with an [↩️ Unsilence] button each.
+- The relay offers `/alerts` and `/silences` to each admin in each allowed
+  chat (`setMyCommands`, scope `chat_member`), as **ephemeral** commands: the
+  command and its answer are seen only by that admin and the bot (#10, Bot
+  API 10.2/10.3; checked against the live API). Commands from anyone else,
+  or in other chats, get no answer (SECURITY.md §2). `/alerts@otherbot` is
+  ignored. In a forum the answer goes to the topic the command was sent in.
+- `/alerts`: this chat's firing incidents, like the status board, with links
+  to their messages; "✅ All clear" if none. Only this chat's: chats can have
+  different audiences.
+- `/silences`: Alertmanager's active silences, ending soonest first, at most
+  20: matchers, end time, and who made it ("Alice via Telegram", else
+  `createdBy`). Only silences made from Telegram (`createdBy: telegram:…`)
+  get a [↩️ End silence N] button, so nobody ends someone's maintenance
+  silence by accident. A button works for 15 minutes, once, and only for the
+  admin who asked, in that chat; if the silence belongs to an open incident,
+  its message is updated as after ↩️ Unsilence.
+- **Daily digest** (#12): with `DIGEST_AT=08:30` (in `TIMEZONE`), each chat
+  gets one quiet message a day, as soon as that time has passed: incidents
+  resolved in the last 24 h (count, the 10 longest), what still fires (the 5
+  oldest), silences made from Telegram that end within 24 h, and the
+  noisiest alert names of the last 7 days (at least 2 incidents). Built from
+  the relay's own state: closed incidents are kept for 7 days (alert name,
+  instance, start and end only). Template block `digest`.
 
 ## 7. Routing within Telegram
 
@@ -414,6 +433,7 @@ names the variable but never echoes its value.
 | `QUIET_HOURS` | v0.3 | | empty | e.g. `22:00-07:00` in `TIMEZONE`: everything but critical without sound (§7) |
 | `ESCALATE_AFTER` | v0.3 | | off | e.g. `15m`: loud reply to unacknowledged critical incidents, up to 3 times (§5) |
 | `STATUS_BOARD` | v0.3 | | `false` | Pinned status board per chat (§5) |
+| `DIGEST_AT` | v0.4 | | off | e.g. `08:30` in `TIMEZONE`: daily digest per chat (§6) |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
@@ -442,9 +462,9 @@ names the variable but never echoes its value.
   | `relay_queue_length` | |
   | `relay_open_incidents` | |
   | `relay_telegram_updates_rejected_total` | |
-  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `end_silence`, `unknown`), `result` (`ok`, `error`, `stale`) |
   | `relay_escalations_total` | |
-  | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`), `result` (`ok`, `error`) |
+  | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`, `list_silences`), `result` (`ok`, `error`) |
 
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short
   hash of the group key, since group keys contain label values. Creating and
@@ -483,7 +503,10 @@ names the variable but never echoes its value.
    and the status board (#6) in v0.3.2. Live checks passed. Topics in
    private chats (#9) are deferred: they need BotFather's threaded mode,
    which may cost a fee, and are reported to fail.
-4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
+4. **v0.4, extras (in progress):** `/alerts` and `/silences` as ephemeral
+   answers (#10) and the daily digest (#12) for v0.4.0; graph images (§8)
+   and the rich-message evaluation (#11) for v0.4.1; topics in private
+   chats (#9) still open.
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check

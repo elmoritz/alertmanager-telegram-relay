@@ -64,6 +64,8 @@ type Config struct {
 	// EscalateAfter is ESCALATE_AFTER; 0 turns escalation off.
 	EscalateAfter time.Duration
 	StatusBoard   bool
+	// DigestAt is DIGEST_AT in minutes after midnight in TIMEZONE; nil: off.
+	DigestAt *int
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -196,6 +198,15 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 			fail(errors.New("QUIET_SEVERITIES: critical always rings and cannot be quiet"))
 		default:
 			c.QuietSeverities = append(c.QuietSeverities, s)
+		}
+	}
+	if v := str("DIGEST_AT", ""); v != "" {
+		t, err := time.Parse("15:04", v)
+		if err != nil {
+			fail(errors.New(`DIGEST_AT: want "HH:MM"`))
+		} else {
+			m := t.Hour()*60 + t.Minute()
+			c.DigestAt = &m
 		}
 	}
 	if c.StatusBoard, err = strconv.ParseBool(str("STATUS_BOARD", "false")); err != nil {
@@ -343,6 +354,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("quiet_hours", c.QuietHours != nil),
 		slog.String("escalate_after", c.EscalateAfter.String()),
 		slog.Bool("status_board", c.StatusBoard),
+		slog.Bool("digest", c.DigestAt != nil),
 	)
 }
 

@@ -88,6 +88,16 @@ func Do(t *testing.T, call func() error) error {
 	}
 }
 
+// AdminUser returns the test user from RELAY_LIVE_ADMIN_USER_ID, or skips.
+func AdminUser(t *testing.T) int64 {
+	t.Helper()
+	id, err := strconv.ParseInt(os.Getenv("RELAY_LIVE_ADMIN_USER_ID"), 10, 64)
+	if err != nil || id == 0 {
+		t.Skip("RELAY_LIVE_ADMIN_USER_ID not set")
+	}
+	return id
+}
+
 // Topic returns the forum topic ID from RELAY_LIVE_TOPIC_<name>, or skips
 // the test. RELAY_LIVE_CHAT_ID must then be a forum group.
 func Topic(t *testing.T, name string) int {

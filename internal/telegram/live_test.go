@@ -373,3 +373,25 @@ func TestLivePin(t *testing.T) {
 		t.Errorf("pin: %v", err)
 	}
 }
+
+// Ephemeral answers (#10): seen only by the admin, buttons allowed.
+func TestLiveEphemeral(t *testing.T) {
+	tg, chat := livetest.Telegram(t)
+	user := livetest.AdminUser(t)
+	c := ctx(t)
+	kb := &telegram.Keyboard{Rows: [][]telegram.Button{{{Text: "↩️ End silence 1", Data: randomData(t)}}}}
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": ephemeral, only for you", Keyboard: kb, Silent: true, EphemeralTo: user})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == 0 {
+		t.Error("no ephemeral message ID")
+	}
+	_, err = send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix, EphemeralTo: 777000})
+	if err == nil {
+		t.Error("ephemeral message to a non-member succeeded")
+	}
+	if err := tg.SetCommands(c, chat, user, []telegram.Command{{Command: "alerts", Description: "live test", Ephemeral: true}}); err != nil {
+		t.Errorf("set commands: %v", err)
+	}
+}

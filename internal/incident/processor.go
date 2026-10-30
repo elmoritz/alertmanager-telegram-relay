@@ -50,6 +50,11 @@ type Processor struct {
 	EscalateAfter time.Duration
 	// BoardChats are the chats with a pinned status board (STATUS_BOARD).
 	BoardChats []int64
+	// DigestAt is the DIGEST_AT time of day, in minutes after midnight in
+	// TIMEZONE; DigestChats get the digest. Nil DigestAt turns it off.
+	DigestAt    *int
+	DigestChats []int64
+	Location    *time.Location
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
@@ -161,6 +166,10 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			return j.dropped(err)
 		}
 		j.react(inc, true)
+		if err := p.Store.AddResolved(store.Resolved{ChatID: inc.ChatID, Alertname: render.Alertname(render.NewData(m)),
+			Instance: m.CommonLabels["instance"], OpenedAt: inc.OpenedAt, ResolvedAt: now}); err != nil {
+			log.Warn("recording the resolved incident failed", "err", err)
+		}
 		if err := p.Store.DeleteIncident(m.GroupKey); err != nil {
 			return err
 		}

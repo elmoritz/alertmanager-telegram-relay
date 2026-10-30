@@ -26,7 +26,8 @@ type Client struct {
 	http     *http.Client
 
 	// OnCall, if set, is called after every request with the operation
-	// ("create_silence", "expire_silence", "list_alerts") and "ok" or "error".
+	// ("create_silence", "expire_silence", "list_alerts", "list_silences")
+	// and "ok" or "error".
 	OnCall func(op, result string)
 }
 
@@ -95,6 +96,35 @@ func (c *Client) ExpireSilence(ctx context.Context, id string) error {
 		return errors.New("invalid silence ID")
 	}
 	return c.do(ctx, "expire_silence", http.MethodDelete, c.base.JoinPath("api/v2/silence", id), nil, nil)
+}
+
+// SilenceInfo is an existing silence.
+type SilenceInfo struct {
+	ID        string    `json:"id"`
+	Matchers  []Matcher `json:"matchers"`
+	StartsAt  time.Time `json:"startsAt"`
+	EndsAt    time.Time `json:"endsAt"`
+	CreatedBy string    `json:"createdBy"`
+	Comment   string    `json:"comment"`
+	Status    struct {
+		State string `json:"state"`
+	} `json:"status"`
+}
+
+// ActiveSilences returns the silences in effect now, ending soonest first.
+func (c *Client) ActiveSilences(ctx context.Context) ([]SilenceInfo, error) {
+	var all []SilenceInfo
+	if err := c.do(ctx, "list_silences", http.MethodGet, c.base.JoinPath("api/v2/silences"), nil, &all); err != nil {
+		return nil, err
+	}
+	var active []SilenceInfo
+	for _, s := range all {
+		if s.Status.State == "active" && silenceIDRE.MatchString(s.ID) {
+			active = append(active, s)
+		}
+	}
+	slices.SortFunc(active, func(a, b SilenceInfo) int { return a.EndsAt.Compare(b.EndsAt) })
+	return active, nil
 }
 
 // ActiveAlerts returns how many unresolved alerts Alertmanager has whose
