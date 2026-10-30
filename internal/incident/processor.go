@@ -27,6 +27,7 @@ type Telegram interface {
 	EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *telegram.Keyboard) error
 	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
 	PinChatMessage(ctx context.Context, chatID int64, messageID int) error
+	EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *telegram.Keyboard) error
 }
 
 // Processor carries out the plan for one notification. It also renders and
@@ -50,6 +51,11 @@ type Processor struct {
 	EscalateAfter time.Duration
 	// BoardChats are the chats with a pinned status board (STATUS_BOARD).
 	BoardChats []int64
+	// DigestAt is the DIGEST_AT time of day, in minutes after midnight in
+	// TIMEZONE; DigestChats get the digest. Nil DigestAt turns it off.
+	DigestAt    *int
+	DigestChats []int64
+	Location    *time.Location
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
@@ -161,6 +167,10 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			return j.dropped(err)
 		}
 		j.react(inc, true)
+		if err := p.Store.AddResolved(store.Resolved{ChatID: inc.ChatID, Alertname: render.Alertname(render.NewData(m)),
+			Instance: m.CommonLabels["instance"], OpenedAt: inc.OpenedAt, ResolvedAt: now}); err != nil {
+			log.Warn("recording the resolved incident failed", "err", err)
+		}
 		if err := p.Store.DeleteIncident(m.GroupKey); err != nil {
 			return err
 		}

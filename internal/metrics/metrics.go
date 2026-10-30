@@ -69,7 +69,7 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 		}),
 		ButtonPresses: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_button_presses_total",
-			Help: "Button presses by allowed users, by action (silence, unsilence, custom, ack, release, unknown) and result (ok, error, stale).",
+			Help: "Button presses by allowed users, by action (silence, unsilence, custom, ack, release, end_silence, unknown) and result (ok, error, stale).",
 		}, []string{"action", "result"}),
 		AlertmanagerRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_alertmanager_requests_total",

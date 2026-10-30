@@ -83,7 +83,8 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	tg.ProtectContent = cfg.ProtectContent
 	tg.OnCall = func(method, result string) { m.TelegramRequests.WithLabelValues(method, result).Inc() }
 
-	if err := checkBot(tg, log); err != nil {
+	botName, err := checkBot(tg, log)
+	if err != nil {
 		return err
 	}
 
@@ -108,11 +109,15 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 		Router:        cfg.Router(),
 		Quiet:         cfg.Quiet(),
 		EscalateAfter: cfg.EscalateAfter,
+		DigestAt:      cfg.DigestAt,
+		DigestChats:   cfg.ChatIDs,
+		Location:      cfg.Location,
 		RetryFor:      retryFor,
 		Now:           time.Now,
 		Sleep:         incident.SleepContext,
 	}
 	buttons := &incident.Buttons{
+		BotUsername:  botName,
 		Processor:    processor,
 		Telegram:     tg,
 		ChatIDs:      cfg.ChatIDs,
@@ -133,12 +138,16 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 		return err
 	}
 	buttons.Enqueue = dispatcher.Enqueue
+	go registerCommands(runCtx, tg, cfg.ChatIDs, cfg.AdminUserIDs, log)
 	go expire(runCtx, st, cfg.IncidentTTL, log)
 	if buttons.Alertmanager != nil {
 		go every(runCtx, incident.SilencedCheckInterval, buttons.CheckSilenced)
 	}
 	if processor.EscalateAfter > 0 {
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
+	}
+	if cfg.DigestAt != nil {
+		go every(runCtx, incident.DigestCheckInterval, processor.CheckDigest)
 	}
 	if cfg.StatusBoard {
 		processor.BoardChats = cfg.ChatIDs
@@ -218,26 +227,47 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	return nil
 }
 
-// checkBot verifies the token. A rejected token stops the relay; a network
-// problem does not (deliveries are retried, and Telegram may be back soon).
-func checkBot(tg *telegram.Client, log *slog.Logger) error {
+// checkBot verifies the token and returns the bot's username. A rejected
+// token stops the relay; a network problem does not (deliveries are retried,
+// and Telegram may be back soon).
+func checkBot(tg *telegram.Client, log *slog.Logger) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	me, err := tg.GetMe(ctx)
 	if err != nil {
 		var e *telegram.Error
 		if errors.As(err, &e) && (e.Code == http.StatusUnauthorized || e.Code == http.StatusNotFound) {
-			return fmt.Errorf("telegram rejected the bot token: %w", err)
+			return "", fmt.Errorf("telegram rejected the bot token: %w", err)
 		}
 		log.Warn("could not reach telegram at startup", "err", err)
-		return nil
+		return "", nil
 	}
 	log.Info("telegram bot ready", "bot", me.Username)
-	return nil
+	return me.Username, nil
+}
+
+// registerCommands offers /alerts and /silences, as ephemeral commands, to
+// each admin in each allowed chat only. Best-effort: an admin who is not in
+// a chat cannot be offered commands there.
+func registerCommands(ctx context.Context, tg *telegram.Client, chats, admins []int64, log *slog.Logger) {
+	failed := 0
+	for _, chat := range chats {
+		for _, admin := range admins {
+			c, cancel := context.WithTimeout(ctx, 10*time.Second)
+			if err := tg.SetCommands(c, chat, admin, incident.Commands); err != nil {
+				failed++
+				log.Debug("registering commands failed", "chat_id", chat, "user_id", admin, "err", err)
+			}
+			cancel()
+		}
+	}
+	if failed > 0 {
+		log.Warn("could not offer commands to every admin in every chat (are they members?)", "failed", failed)
+	}
 }
 
 // every runs check at each interval until ctx is done: the silenced-group
-// check, escalations and status boards (SPEC §5).
+// check, escalations, status boards and the digest (SPEC §5, §6).
 func every(ctx context.Context, interval time.Duration, check func(context.Context)) {
 	t := time.NewTicker(interval)
 	defer t.Stop()

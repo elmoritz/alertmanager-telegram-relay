@@ -215,6 +215,13 @@ type Message struct {
 	// mentioned in Text (or the author of the message replied to), with
 	// ForceReply as its placeholder. Not combined with Keyboard.
 	ForceReply string
+	// EphemeralTo, if not zero, sends the message so that only this user
+	// (and the bot) sees it. It must be a member of the chat.
+	EphemeralTo int64
+}
+
+type ephemeralParameters struct {
+	ReceiverUserID int64 `json:"receiver_user_id"`
 }
 
 type forceReply struct {
@@ -306,15 +313,16 @@ type linkPreviewOptions struct {
 // SendMessage sends m and returns the new message's ID.
 func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	params := struct {
-		ChatID              int64              `json:"chat_id"`
-		MessageThreadID     int                `json:"message_thread_id,omitempty"`
-		Text                string             `json:"text"`
-		ParseMode           string             `json:"parse_mode"`
-		LinkPreviewOptions  linkPreviewOptions `json:"link_preview_options"`
-		DisableNotification bool               `json:"disable_notification,omitempty"`
-		ProtectContent      bool               `json:"protect_content,omitempty"`
-		ReplyParameters     *replyParameters   `json:"reply_parameters,omitempty"`
-		ReplyMarkup         any                `json:"reply_markup,omitempty"`
+		ChatID              int64                `json:"chat_id"`
+		MessageThreadID     int                  `json:"message_thread_id,omitempty"`
+		Text                string               `json:"text"`
+		ParseMode           string               `json:"parse_mode"`
+		LinkPreviewOptions  linkPreviewOptions   `json:"link_preview_options"`
+		DisableNotification bool                 `json:"disable_notification,omitempty"`
+		ProtectContent      bool                 `json:"protect_content,omitempty"`
+		Ephemeral           *ephemeralParameters `json:"ephemeral_message_parameters,omitempty"`
+		ReplyParameters     *replyParameters     `json:"reply_parameters,omitempty"`
+		ReplyMarkup         any                  `json:"reply_markup,omitempty"`
 	}{
 		ChatID:              m.ChatID,
 		MessageThreadID:     m.ThreadID,
@@ -334,13 +342,66 @@ func (c *Client) SendMessage(ctx context.Context, m Message) (int, error) {
 	if m.ForceReply != "" {
 		params.ReplyMarkup = forceReply{ForceReply: true, Selective: true, Placeholder: m.ForceReply}
 	}
+	if m.EphemeralTo != 0 {
+		params.Ephemeral = &ephemeralParameters{ReceiverUserID: m.EphemeralTo}
+	}
 	var res struct {
-		MessageID int `json:"message_id"`
+		MessageID          int `json:"message_id"`
+		EphemeralMessageID int `json:"ephemeral_message_id"`
 	}
 	if err := c.call(ctx, "sendMessage", params, &res); err != nil {
 		return 0, err
 	}
+	if m.EphemeralTo != 0 {
+		return res.EphemeralMessageID, nil
+	}
 	return res.MessageID, nil
+}
+
+// EditEphemeralMessageText replaces the text and keyboard of an ephemeral
+// message sent to receiver; a nil keyboard removes it.
+func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *Keyboard) error {
+	if kb == nil {
+		kb = noKeyboard
+	}
+	params := struct {
+		ChatID             int64              `json:"chat_id"`
+		EphemeralMessageID int                `json:"ephemeral_message_id"`
+		ReceiverUserID     int64              `json:"receiver_user_id"`
+		Text               string             `json:"text"`
+		ParseMode          string             `json:"parse_mode"`
+		LinkPreviewOptions linkPreviewOptions `json:"link_preview_options"`
+		ReplyMarkup        *Keyboard          `json:"reply_markup"`
+	}{chatID, ephemeralID, receiver, text, "HTML", linkPreviewOptions{IsDisabled: true}, kb}
+	err := c.call(ctx, "editEphemeralMessageText", params, nil)
+	if hasDescription(err, "message is not modified") {
+		return nil
+	}
+	return err
+}
+
+// Command is a bot command for SetCommands.
+type Command struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+	// Ephemeral makes the command and its answer visible only to its author
+	// and the bot.
+	Ephemeral bool `json:"is_ephemeral,omitempty"`
+}
+
+// SetCommands sets the commands one user sees in one chat (scope
+// chat_member), so only the relay's admins are offered them.
+func (c *Client) SetCommands(ctx context.Context, chatID, userID int64, cmds []Command) error {
+	params := struct {
+		Commands []Command `json:"commands"`
+		Scope    struct {
+			Type   string `json:"type"`
+			ChatID int64  `json:"chat_id"`
+			UserID int64  `json:"user_id"`
+		} `json:"scope"`
+	}{Commands: cmds}
+	params.Scope.Type, params.Scope.ChatID, params.Scope.UserID = "chat_member", chatID, userID
+	return c.call(ctx, "setMyCommands", params, nil)
 }
 
 // EditMessageText replaces the text and keyboard of a message the bot sent; a
@@ -379,7 +440,11 @@ type Update struct {
 // acts only on replies to its own messages and drops the rest unlogged.
 type IncomingMessage struct {
 	MessageID int `json:"message_id"`
-	Chat      struct {
+	// EphemeralMessageID is set instead of MessageID for a message only the
+	// bot and its author see (an ephemeral command).
+	EphemeralMessageID int `json:"ephemeral_message_id"`
+	ThreadID           int `json:"message_thread_id"`
+	Chat               struct {
 		ID int64 `json:"id"`
 	} `json:"chat"`
 	From           *User  `json:"from"` // nil for messages on behalf of a chat

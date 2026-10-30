@@ -37,6 +37,7 @@ type call struct {
 	ChatID              int64
 	ThreadID            int
 	ForceReply          bool
+	EphemeralTo         int64
 }
 
 func (c call) String() string {
@@ -49,6 +50,9 @@ func (c call) String() string {
 	}
 	if c.DisableNotification {
 		s += " silent"
+	}
+	if c.EphemeralTo != 0 {
+		s += fmt.Sprintf(" for %d", c.EphemeralTo)
 	}
 	return s
 }
@@ -86,9 +90,12 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Markup struct {
 			ForceReply bool `json:"force_reply"`
 		} `json:"reply_markup"`
+		Ephemeral struct {
+			To int64 `json:"receiver_user_id"`
+		} `json:"ephemeral_message_parameters"`
 	}
 	_ = json.Unmarshal(b, &force)
-	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID, ForceReply: force.Markup.ForceReply}
+	c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], Text: p.Text, MessageID: p.MessageID, DisableNotification: p.DisableNotification, Keyboard: p.ReplyMarkup, ChatID: p.ChatID, ThreadID: p.ThreadID, ForceReply: force.Markup.ForceReply, EphemeralTo: force.Ephemeral.To}
 	if p.ReplyParameters != nil {
 		c.ReplyTo = p.ReplyParameters.MessageID
 	}
@@ -113,6 +120,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, resp)
 			return
 		}
+	}
+	if c.Method == "sendMessage" && c.EphemeralTo != 0 {
+		fmt.Fprintf(w, `{"ok":true,"result":{"message_id":0,"ephemeral_message_id":%d}}`, 900+n)
+		return
 	}
 	if c.Method == "sendMessage" {
 		f.nextID++

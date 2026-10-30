@@ -159,6 +159,14 @@ func New(customFile string, loc *time.Location, now func() time.Time) (*Renderer
 			}
 		}
 	}
+	if _, err := r.Silences([]SilenceItem{{N: 1, Matchers: `alertname="Sample"`, Until: now(), By: "Sample"}, {Matchers: "x", Until: now()}}); err != nil {
+		return nil, fmt.Errorf("template \"silences\" fails on sample silences: %w", err)
+	}
+	if _, err := r.Digest(DigestData{ResolvedCount: 1, Resolved: []DigestItem{{Alertname: "Sample", Instance: "x", Duration: "5m"}},
+		Open: []DigestItem{{Alertname: "Sample", Since: now()}}, SilencesEnding: []DigestItem{{Alertname: "Sample", Since: now()}},
+		Noisy: []DigestItem{{Alertname: "Sample", Count: 2}}}); err != nil {
+		return nil, fmt.Errorf("template \"digest\" fails on a sample digest: %w", err)
+	}
 	items := []BoardItem{{Data: samples[0], URL: "https://t.me/c/1/2"}, {Data: samples[1]}}
 	for _, it := range [][]BoardItem{items, nil} {
 		if _, err := r.Board(it, now()); err != nil {
@@ -233,6 +241,63 @@ func (r *Renderer) Board(items []BoardItem, allClearSince time.Time) (string, er
 		}
 		n = n * 3 / 4
 	}
+}
+
+// SilenceItem is one line of the /silences answer.
+type SilenceItem struct {
+	N        int    // number of its ↩️ button, 0 if it has none
+	Matchers string // e.g. alertname="DiskFull", instance="server-1"; alert content, escaped
+	Until    time.Time
+	By       string // who made it; user content, escaped
+}
+
+// Silences renders the /silences answer (template "silences"), dropping
+// silences from the end until it fits.
+func (r *Renderer) Silences(items []SilenceItem) (string, error) {
+	n := len(items)
+	for {
+		s, err := r.execute("silences", struct {
+			Items []SilenceItem
+			More  int
+		}{items[:n], len(items) - n})
+		if err != nil {
+			return "", err
+		}
+		if Len(s) <= MaxLen || n == 0 {
+			return s, nil
+		}
+		n = n * 3 / 4
+	}
+}
+
+// DigestItem is one incident or alert name in the daily digest.
+type DigestItem struct {
+	Alertname string
+	Instance  string
+	Duration  string    // resolved: how long it lasted
+	Since     time.Time // open: when it started; silence: when it ends
+	Count     int       // noisiest: incidents in the period
+}
+
+// DigestData is the daily digest's template data.
+type DigestData struct {
+	ResolvedCount  int
+	Resolved       []DigestItem // the longest, at most 10
+	Open           []DigestItem // the oldest, at most 5
+	SilencesEnding []DigestItem
+	Noisy          []DigestItem // at most 5, each with Count ≥ 2
+}
+
+// Digest renders the daily digest (template "digest").
+func (r *Renderer) Digest(d DigestData) (string, error) {
+	s, err := r.execute("digest", d)
+	if err != nil {
+		return "", err
+	}
+	if Len(s) > MaxLen {
+		return "📋 Daily digest: too much to list; see the incident messages.", nil
+	}
+	return s, nil
 }
 
 // Escalation renders the loud reply to a critical incident nobody has
@@ -368,6 +433,9 @@ func alertname(d Data) string {
 
 // severity is the group's severity: the common label, else the most severe
 // firing alert's.
+// Alertname is the group's alert name as the templates see it.
+func Alertname(d Data) string { return alertname(d) }
+
 // Severity is the group's severity as the templates see it: the common
 // severity label, else the most severe firing alert's.
 func Severity(d Data) string { return severity(d) }

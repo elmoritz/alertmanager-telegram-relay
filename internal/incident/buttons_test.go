@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,9 @@ type fakeAlertmanager struct {
 	notFound bool
 	alerts   int      // unresolved alerts GET /api/v2/alerts reports
 	filters  []string // filter parameters of the last GET /api/v2/alerts
+	// foreign is an active silence not made from Telegram, listed by GET
+	// /api/v2/silences next to the created ones that were not expired.
+	foreign bool
 }
 
 func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +54,19 @@ func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.created = append(f.created, s)
 		f.nextID++
 		fmt.Fprintf(w, `{"silenceID":"00000000-0000-4000-8000-%012d"}`, f.nextID)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v2/silences":
+		var out []map[string]any
+		for i, s := range f.created {
+			id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1)
+			if !slices.Contains(f.expired, id) {
+				out = append(out, map[string]any{"id": id, "status": map[string]string{"state": "active"}, "matchers": s.Matchers, "endsAt": s.EndsAt, "createdBy": s.CreatedBy, "comment": s.Comment})
+			}
+		}
+		if f.foreign {
+			out = append(out, map[string]any{"id": "00000000-0000-4000-8000-999999999999", "status": map[string]string{"state": "active"},
+				"matchers": []map[string]any{{"name": "job", "value": "backup", "isEqual": true}}, "endsAt": "2026-03-02T09:00:00Z", "createdBy": "ops@example.com"})
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v2/alerts":
 		f.filters = r.URL.Query()["filter"]
 		io.WriteString(w, "["+strings.TrimSuffix(strings.Repeat(`{"labels":{}},`, f.alerts), ",")+"]")

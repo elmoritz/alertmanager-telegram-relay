@@ -29,11 +29,12 @@ func (p *Processor) UpdateBoards(ctx context.Context) {
 	}
 }
 
-func (p *Processor) updateBoard(ctx context.Context, chat int64) error {
-	now := p.Now()
+// boardItems are the chat's firing incidents, oldest first, for the board
+// and /alerts.
+func (p *Processor) boardItems(chat int64) ([]render.BoardItem, error) {
 	incs, err := p.Store.Incidents(func(inc *store.Incident) bool { return inc.ChatID == chat })
 	if err != nil {
-		return err
+		return nil, err
 	}
 	slices.SortFunc(incs, func(a, b *store.Incident) int { return a.OpenedAt.Compare(b.OpenedAt) })
 	var items []render.BoardItem
@@ -43,6 +44,15 @@ func (p *Processor) updateBoard(ctx context.Context, chat int64) error {
 			continue
 		}
 		items = append(items, render.BoardItem{Data: p.data(inc, &m, nil), URL: messageLink(chat, inc.ThreadID, inc.MessageID)})
+	}
+	return items, nil
+}
+
+func (p *Processor) updateBoard(ctx context.Context, chat int64) error {
+	now := p.Now()
+	items, err := p.boardItems(chat)
+	if err != nil {
+		return err
 	}
 
 	board, err := p.Store.Board(chat)

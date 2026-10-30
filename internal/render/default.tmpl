@@ -60,4 +60,33 @@
 {{- else}}✅ <b>All clear</b>{{if not .AllClearSince.IsZero}} since {{tgtime .AllClearSince "wt"}}{{end}}{{end}}
 {{- end}}
 
+{{- define "silences" -}}
+{{if .Items}}🔕 <b>{{len .Items}}{{with .More}} + {{.}}{{end}} active silence{{if gt (len .Items) 1}}s{{end}}</b>
+{{range .Items}}
+{{if .N}}{{.N}}.{{else}}•{{end}} {{.Matchers | oneline | clip 200}} · until {{tgtime .Until "wt"}} · {{.By | oneline | clip 40}}{{end}}
+{{- with .More}}
+…and {{.}} more{{end}}
+{{- else}}No active silences.{{end}}
+{{- end}}
+
+{{- define "digest_item"}}<b>{{.Alertname | oneline | clip 80}}</b>{{with .Instance}} · {{oneline . | clip 60}}{{end}}{{end}}
+
+{{- define "digest" -}}
+📋 <b>Daily digest</b>
+
+{{if .ResolvedCount}}Last 24 h: {{.ResolvedCount}} resolved{{range .Resolved}}
+• {{template "digest_item" .}}, {{.Duration}}{{end}}{{else}}Last 24 h: nothing resolved.{{end}}
+{{- if .Open}}
+
+Still firing:{{range .Open}}
+• {{template "digest_item" .}}, since {{tgtime .Since "wt"}}{{end}}{{end}}
+{{- if .SilencesEnding}}
+
+Silences ending within 24 h:{{range .SilencesEnding}}
+• {{template "digest_item" .}}, {{tgtime .Since "wt"}}{{end}}{{end}}
+{{- if .Noisy}}
+
+Noisiest (7 days): {{range $i, $n := .Noisy}}{{if $i}}, {{end}}{{$n.Alertname | oneline | clip 60}} ×{{$n.Count}}{{end}}{{end}}
+{{- end}}
+
 {{- define "resolve_reply"}}✅ resolved{{with duration .OpenedAt .Now}} after {{.}}{{end}}{{end}}

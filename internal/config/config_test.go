@@ -216,6 +216,7 @@ func TestRoutingAndQuiet(t *testing.T) {
 	m["TIMEZONE"] = "Europe/Berlin"
 	m["ESCALATE_AFTER"] = "15m"
 	m["STATUS_BOARD"] = "true"
+	m["DIGEST_AT"] = "08:30"
 	if c, err = load(env(m), noFiles); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestRoutingAndQuiet(t *testing.T) {
 	if len(r.Rules) != 2 || r.Pick(map[string]string{"team": "media"}).ThreadID != 42 || r.Default.ChatID != -1001234567890 {
 		t.Errorf("router %+v", r)
 	}
-	if c.EscalateAfter != 15*time.Minute || !c.StatusBoard {
+	if c.EscalateAfter != 15*time.Minute || !c.StatusBoard || c.DigestAt == nil || *c.DigestAt != 510 {
 		t.Errorf("escalate after %s", c.EscalateAfter)
 	}
 	q := c.Quiet()
@@ -242,6 +243,7 @@ func TestRoutingAndQuietInvalid(t *testing.T) {
 		"escalate too often":    {"ESCALATE_AFTER": "30s"},
 		"escalate not duration": {"ESCALATE_AFTER": "soon"},
 		"board not bool":        {"STATUS_BOARD": "pinned"},
+		"digest time":           {"DIGEST_AT": "8.30"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := valid()

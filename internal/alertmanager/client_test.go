@@ -168,3 +168,24 @@ func TestActiveAlerts(t *testing.T) {
 		t.Error("no labels must be an error, not all alerts")
 	}
 }
+
+// Shape of a real answer, values replaced.
+func TestActiveSilences(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/silences" {
+			t.Errorf("request %s %s", r.Method, r.URL.Path)
+		}
+		io.WriteString(w, `[
+ {"id":"00000000-0000-4000-8000-000000000002","status":{"state":"active"},"matchers":[{"name":"alertname","value":"DiskFull","isRegex":false,"isEqual":true}],"startsAt":"2026-03-02T05:00:00Z","endsAt":"2026-03-02T09:00:00Z","createdBy":"ops@example.com","comment":"maintenance"},
+ {"id":"00000000-0000-4000-8000-000000000001","status":{"state":"active"},"matchers":[{"name":"alertname","value":"HostDown","isRegex":false,"isEqual":true}],"startsAt":"2026-03-02T05:00:00Z","endsAt":"2026-03-02T06:00:00Z","createdBy":"telegram:11111111","comment":"x"},
+ {"id":"00000000-0000-4000-8000-000000000003","status":{"state":"expired"},"matchers":[],"startsAt":"2026-03-01T05:00:00Z","endsAt":"2026-03-01T06:00:00Z","createdBy":"x","comment":"x"},
+ {"id":"00000000-0000-4000-8000-000000000004","status":{"state":"pending"},"matchers":[],"startsAt":"2026-03-03T05:00:00Z","endsAt":"2026-03-03T06:00:00Z","createdBy":"x","comment":"x"}
+]`)
+	}))
+	defer srv.Close()
+	base, _ := url.Parse(srv.URL)
+	got, err := NewClient(base, "", "", "").ActiveSilences(context.Background())
+	if err != nil || len(got) != 2 || got[0].CreatedBy != "telegram:11111111" || got[1].Matchers[0].Value != "DiskFull" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
