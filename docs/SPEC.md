@@ -442,7 +442,7 @@ names the variable but never echoes its value.
   | `relay_queue_length` | |
   | `relay_open_incidents` | |
   | `relay_telegram_updates_rejected_total` | |
-  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `ack`, `release`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `unknown`), `result` (`ok`, `error`, `stale`) |
   | `relay_escalations_total` | |
   | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`), `result` (`ok`, `error`) |
 
@@ -477,13 +477,12 @@ names the variable but never echoes its value.
    check passed); `PROTECT_CONTENT`, coloured and disabled buttons, copy
    button (v0.2.1, issues #1–#4); resolving groups silenced from Telegram,
    which Alertmanager does not report (v0.2.1). Live check passed.
-3. **v0.3, routing (in progress):** quiet severities, multiple chats and
-   forum topics, quiet hours (#8) in v0.3.0; acknowledgement (#13) and
-   escalation (#5, without direct messages) in v0.3.1 (live checks passed);
-   custom silence by
-   reply (#7) and the status board (#6) for v0.3.2. Topics in private chats
-   (#9) are deferred: they need BotFather's threaded mode, which may cost a
-   fee, and are reported to fail.
+3. **v0.3, routing (done):** quiet severities, multiple chats and forum
+   topics, quiet hours (#8) in v0.3.0; acknowledgement (#13) and escalation
+   (#5, without direct messages) in v0.3.1; custom silence by reply (#7)
+   and the status board (#6) in v0.3.2. Live checks passed. Topics in
+   private chats (#9) are deferred: they need BotFather's threaded mode,
+   which may cost a fee, and are reported to fail.
 4. **v0.4, extras:** `/alerts` and `/silences` commands, graph images.
 
 A milestone's scope is the list above **plus the open issues in the GitHub

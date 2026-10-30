@@ -139,6 +139,8 @@ Tick each item, and note anything that differs:
 - [ ] **Quiet:** with `QUIET_SEVERITIES=info`, an info alert arrives without sound; a critical one always rings.
 - [ ] **I'm on it:** pressing "👀 I'm on it" shows "👀 <name> is on it", a ↩️ Release button and the bot's 👀 reaction; Release undoes all three. An admin's 👍 on the alert or on an escalation reply acknowledges too.
 - [ ] **Escalation:** with `ESCALATE_AFTER=2m`, an unacknowledged critical alert gets one "🚨 still unacknowledged after 2m" reply with sound, then again 2m later at most, 3 times in total; acknowledging or silencing stops it.
+- [ ] **Custom silence:** a reply `45m maintenance` to an alert gets 👌 and silences it with that reason; "⏱ Custom…" posts a prompt that opens the reply field; an unparseable reply gets 🤔.
+- [ ] **Status board** (`STATUS_BOARD=true`): one pinned board in General, "🚦 N firing" with working links and 😴/👀 markers, "✅ All clear since …" when nothing fires.
 - [ ] **Resolved while silenced:** silence an alert from Telegram, then `resolve` it. Alertmanager sends nothing, but within about 6 minutes the relay edits the message to resolved (log: "silenced alerts resolved without a notification").
 - [ ] **Silenced status:** while silenced, a greyed-out "🔕 Silenced until … by …" sits above a highlighted ↩️ Unsilence; tapping the grey one does nothing.
 - [ ] **Resolved status:** a resolved message keeps one greyed-out "✅ Resolved after …" button; tapping it does nothing.
