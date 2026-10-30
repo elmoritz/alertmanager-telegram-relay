@@ -383,13 +383,24 @@ Inline keyboard under every firing message:
 - The severity is the one the template shows: the common `severity` label,
   else that of the most severe firing alert.
 
-## 8. Graph images (later, optional)
+## 8. Graph images
 
-When `GRAFANA_URL` and a render token are configured and an alert has a
-`panel_url` annotation pointing at a Grafana panel, render it via Grafana's
-`/render` endpoint (requires the image-renderer plugin) and send it as a photo
-reply to the incident message. Strictly best-effort: any failure is logged and
-skipped, never delays or blocks the text message.
+- With `GRAFANA_URL` and `GRAFANA_TOKEN` (a service-account token with the
+  Viewer role) set, a new incident whose first firing alert (else the common
+  annotations) has a `panel_url` annotation gets the panel as a silent photo
+  reply, rendered through Grafana's `/render/d-solo/…` endpoint. That needs
+  Grafana's image renderer (plugin or the `grafana-image-renderer` service);
+  without it Grafana answers with an error and no image is sent.
+- `panel_url` is a Grafana panel link, `…/d/<uid>/<slug>?viewPanel=<id>` or
+  `…/d-solo/<uid>/<slug>?panelId=<id>`, on the same scheme, host and port as
+  `GRAFANA_URL` (SECURITY.md §6). The image is 1000×500, covers the link's
+  `from`/`to` if valid, else the last 3 hours, in `TIMEZONE`, with the link's
+  `var-*` values and `orgId`.
+- Strictly best-effort and in the background: the text message is sent
+  first and never waits for or depends on the image. Rendering and sending
+  are bounded to one minute; failures are logged without the URL and
+  counted in `relay_graph_images_total`. Only for a new incident, not for
+  later notifications.
 
 ## 9. Reliability
 
@@ -439,6 +450,7 @@ names the variable but never echoes its value.
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
+| `GRAFANA_TOKEN` | v0.4 | for graph images | | Grafana service-account token (Viewer); turns on graph images (§8) |
 | `SHOW_SOURCE_BUTTON` | v0.2 | | `false` | 🔗 Source button with the first alert's `generatorURL` |
 | `PROTECT_CONTENT` | v0.2 | | `false` | Send every message with `protect_content`, so alert messages cannot be forwarded or saved (this also blocks forwarding to yourself). Link previews are always off. |
 | `INCIDENT_TTL` | v0.1 | | `720h` | Forget unresolved incidents this long after their last notification |
@@ -466,6 +478,7 @@ names the variable but never echoes its value.
   | `relay_telegram_updates_rejected_total` | |
   | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `end_silence`, `unknown`), `result` (`ok`, `error`, `stale`) |
   | `relay_escalations_total` | |
+  | `relay_graph_images_total` | `result` (`ok`, `render_error`, `send_error`) |
   | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`, `list_silences`), `result` (`ok`, `error`) |
 
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short

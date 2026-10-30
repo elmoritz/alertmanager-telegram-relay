@@ -52,7 +52,10 @@ type Config struct {
 	AlertmanagerToken    string
 	SilenceDurations     []time.Duration
 
-	GrafanaURL       string
+	GrafanaURL string
+	// GrafanaToken is a service-account token for rendering panels (graph
+	// images, SPEC §8); empty: no graph images.
+	GrafanaToken     string
 	ShowSourceButton bool
 	ProtectContent   bool
 
@@ -180,6 +183,10 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		} else {
 			c.GrafanaURL = u.String()
 		}
+	}
+	c.GrafanaToken = secret("GRAFANA_TOKEN")
+	if c.GrafanaToken != "" && c.GrafanaURL == "" {
+		fail(errors.New("GRAFANA_TOKEN needs GRAFANA_URL"))
 	}
 	if c.ShowSourceButton, err = strconv.ParseBool(str("SHOW_SOURCE_BUTTON", "false")); err != nil {
 		fail(fmt.Errorf("SHOW_SOURCE_BUTTON: %w", err))
@@ -325,8 +332,8 @@ func (c *Config) Quiet() route.Quiet {
 // String returns a redacted description safe to log. Value receivers, so
 // both Config and *Config are covered.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s AlertmanagerAuth:%s}",
-		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret), c.alertmanagerAuth())
+	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s AlertmanagerAuth:%s GrafanaToken:%s}",
+		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret), c.alertmanagerAuth(), redact(c.GrafanaToken))
 }
 
 // GoString keeps %#v from printing the fields.
@@ -347,6 +354,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("alertmanager_auth", c.alertmanagerAuth()),
 		slog.Any("silence_durations", durationStrings(c.SilenceDurations)),
 		slog.Bool("grafana_url", c.GrafanaURL != ""),
+		slog.Bool("graph_images", c.GrafanaToken != ""),
 		slog.Bool("show_source_button", c.ShowSourceButton),
 		slog.Bool("protect_content", c.ProtectContent),
 		slog.Int("routes", len(c.Routes)),

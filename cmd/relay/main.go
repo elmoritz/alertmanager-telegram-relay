@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/config"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/grafana"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/incident"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/metrics"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
@@ -146,6 +148,10 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	if processor.EscalateAfter > 0 {
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
 	}
+	if cfg.GrafanaToken != "" {
+		u, _ := url.Parse(cfg.GrafanaURL) // validated by config
+		processor.Graphs = grafana.New(u, cfg.GrafanaToken, cfg.Location.String())
+	}
 	if cfg.DigestAt != nil {
 		go every(runCtx, incident.DigestCheckInterval, processor.CheckDigest)
 	}
@@ -221,6 +227,7 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	dispatcher.Drain(graceCtx)
 	stopWorkers()
 	dispatcher.Wait()
+	processor.WaitGraphs()
 	if n, _ := st.QueueLen(); n > 0 {
 		log.Warn("notifications left queued for the next start", "count", n)
 	}
