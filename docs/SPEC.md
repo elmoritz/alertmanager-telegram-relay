@@ -150,6 +150,17 @@ end).
   `earliest`, `duration`, `httpURL`, `tgtime`, `tgago`. The templates are tried
   on a sample notification at startup; a broken one stops the relay from
   starting.
+- **Format: Telegram HTML** (`parse_mode: HTML`), not rich messages
+  (`sendRichMessage`, Bot API 10.1–10.3). Evaluated against the live API in
+  #11: rich messages would allow a heading, a label table and 32768
+  characters, and they work with the inline keyboard, `date_time` and
+  in-place edits (also from and to HTML). But their `html` field silently
+  drops unknown or unclosed tags, so a rendering mistake no longer fails
+  visibly; length control would need new limits (characters, 500 blocks,
+  nesting, table columns) and error codes; custom templates, golden files
+  and these rules all assume HTML; and how older clients show them is
+  unknown. A rich mode may come later as an option with its own templates,
+  after checking older clients and button callbacks on rich messages.
 - Severity emoji from the `severity` label (common label, else the most severe
   firing alert): `critical` 🔥, `warning` ⚠️, anything else ℹ️. Configurable by
   redefining `severity_emoji`.
