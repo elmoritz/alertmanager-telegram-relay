@@ -86,7 +86,10 @@ type Ack struct {
 // Silence describes a silence made through the message's buttons.
 type Silence struct {
 	Until time.Time
-	By    string // the Telegram user's first name: user content, escaped like any other
+	By    string // the Telegram user's first name, or a createdBy: user content, escaped like any other
+	// External is set for a silence made outside Telegram (Alertmanager UI,
+	// amtool).
+	External bool
 }
 
 // Limits bound how much of a notification a template shows.

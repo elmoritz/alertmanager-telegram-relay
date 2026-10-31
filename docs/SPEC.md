@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 to v0.3 implemented, v0.4 in progress** (see §13); later milestones are design. This
+Status: **v0.1 to v0.4 implemented, v0.5 in progress** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -227,13 +227,15 @@ Inline keyboard under every firing message:
 - If Alertmanager is unreachable, the toast says so and nothing changes (the
   buttons keep working). Unsilencing a silence Alertmanager no longer knows
   counts as success.
-- **Silenced groups are checked against Alertmanager.** Alertmanager sends no
-  notification when silenced alerts resolve, and none right away when a
-  silence runs out while the alerts keep firing (the next one may be a
-  `repeat_interval` away). So every minute, for each incident silenced from
-  Telegram, the relay asks for the group's unresolved alerts
-  (`GET /api/v2/alerts`, exact matchers on the group labels, silenced and
-  inhibited ones included):
+- **Open incidents are checked against Alertmanager.** Alertmanager sends
+  nothing for silenced alerts (neither when they are silenced nor when they
+  resolve), and nothing right away when a silence runs out while the alerts
+  keep firing (the next notification may be a `repeat_interval` away). So
+  every minute the relay lists Alertmanager's unresolved alerts and active
+  silences (`GET /api/v2/alerts` with silenced and inhibited ones,
+  `GET /api/v2/silences`: two calls per minute, however many incidents) and
+  matches each open incident's group labels against them. For an incident
+  silenced from Telegram or outside it:
   - none for 5 minutes in a row: the relay queues the resolve notification
     Alertmanager did not send (the last notification, all alerts resolved
     now), and the message is resolved as usual. The 5 minutes cover an
@@ -245,8 +247,12 @@ Inline keyboard under every firing message:
   - Alertmanager unreachable: nothing changes; the next check tries again.
   A silence that runs out is also noticed at the next notification for the
   incident.
-- A silence created outside Telegram is not tracked; the message only reflects
-  silences made through its own buttons.
+- **Silences made outside Telegram** (Alertmanager UI, amtool) that cover
+  all of a group's alerts are shown too: "🔕 silenced until 18:00 by
+  ops@example.com in Alertmanager", a disabled status button, the 😴
+  reaction, no escalation. They are ended where they were made: the message
+  offers no Unsilence for them and no silence buttons while they last. A
+  `createdBy` of `telegram:<id>` shows as "Telegram", never the ID.
 - Link buttons use only `http(s)` URLs. `dashboard_url` and `runbook_url` are
   taken from the first firing alert that has them, else the common
   annotations; `copy_command` likewise. Telegram rejects some URLs (e.g. host
@@ -536,6 +542,18 @@ names the variable but never echoes its value.
    and the daily digest (#12) in v0.4.0; graph images (§8) in v0.4.1; rich
    messages evaluated and not adopted (#11, see §4). Live checks passed.
    Still open: topics in private chats (#9).
+5. **v0.5, v1.0 readiness (in progress):** show silences made outside
+   Telegram (Alertmanager UI, amtool) on the incident's message; tell alerts
+   with the same summary apart by the label that differs; hardening: fuzz
+   tests for the parsers, a CHANGELOG and release notes, example alert rules
+   for the newer metrics, and a documented stable contract for configuration
+   and templates.
+6. **v0.6, remediation actions (planned):** predefined actions (e.g.
+   restart a stack through Komodo) offered as buttons on matching alerts,
+   for admins only, with a confirmation press and an audit log line. The
+   relay itself runs nothing: it calls the executor's API with a stored
+   action, never with text from an alert or a chat. Starts with a SECURITY.md
+   section, reviewed before any code.
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check

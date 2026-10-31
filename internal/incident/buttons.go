@@ -19,7 +19,7 @@ import (
 type Silencer interface {
 	CreateSilence(ctx context.Context, s alertmanager.Silence) (string, error)
 	ExpireSilence(ctx context.Context, id string) error
-	ActiveAlerts(ctx context.Context, labels map[string]string) (int, error)
+	Alerts(ctx context.Context) ([]alertmanager.AlertInfo, error)
 	ActiveSilences(ctx context.Context) ([]alertmanager.SilenceInfo, error)
 }
 

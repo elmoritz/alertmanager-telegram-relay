@@ -127,6 +127,27 @@ func (c *Client) ActiveSilences(ctx context.Context) ([]SilenceInfo, error) {
 	return active, nil
 }
 
+// AlertInfo is an alert as Alertmanager's API lists it.
+type AlertInfo struct {
+	Labels map[string]string `json:"labels"`
+	Status struct {
+		State      string   `json:"state"`
+		SilencedBy []string `json:"silencedBy"`
+	} `json:"status"`
+}
+
+// Alerts returns all unresolved alerts, silenced and inhibited ones
+// included.
+func (c *Client) Alerts(ctx context.Context) ([]AlertInfo, error) {
+	u := c.base.JoinPath("api/v2/alerts")
+	u.RawQuery = url.Values{"active": {"true"}, "silenced": {"true"}, "inhibited": {"true"}, "unprocessed": {"true"}}.Encode()
+	var alerts []AlertInfo
+	if err := c.do(ctx, "list_alerts", http.MethodGet, u, nil, &alerts); err != nil {
+		return nil, err
+	}
+	return alerts, nil
+}
+
 // ActiveAlerts returns how many unresolved alerts Alertmanager has whose
 // labels include all of labels, silenced and inhibited ones included.
 func (c *Client) ActiveAlerts(ctx context.Context, labels map[string]string) (int, error) {

@@ -46,7 +46,7 @@ func (p *Processor) dueForEscalation(inc *store.Incident, now time.Time) bool {
 	if inc.LastEscalation.After(since) {
 		since = inc.LastEscalation
 	}
-	return inc.Ack == nil && inc.Silence == nil && inc.Escalations < maxEscalations &&
+	return inc.Ack == nil && inc.Silence == nil && inc.ExternalSilence == nil && inc.Escalations < maxEscalations &&
 		now.Sub(since) >= p.EscalateAfter
 }
 

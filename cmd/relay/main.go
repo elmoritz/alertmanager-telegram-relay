@@ -143,7 +143,7 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	go registerCommands(runCtx, tg, cfg.ChatIDs, cfg.AdminUserIDs, log)
 	go expire(runCtx, st, cfg.IncidentTTL, log)
 	if buttons.Alertmanager != nil {
-		go every(runCtx, incident.SilencedCheckInterval, buttons.CheckSilenced)
+		go every(runCtx, incident.SilencedCheckInterval, buttons.CheckAlertmanager)
 	}
 	if processor.EscalateAfter > 0 {
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)

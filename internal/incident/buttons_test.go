@@ -32,12 +32,16 @@ type fakeAlertmanager struct {
 	down     bool
 	nextID   int
 	notFound bool
-	alerts   int      // unresolved alerts GET /api/v2/alerts reports
-	filters  []string // filter parameters of the last GET /api/v2/alerts
+	alerts   int // unresolved alerts GET /api/v2/alerts reports
 	// foreign is an active silence not made from Telegram, listed by GET
 	// /api/v2/silences next to the created ones that were not expired.
 	foreign bool
+	// silencedBy are the silence IDs GET /api/v2/alerts reports on each alert.
+	silencedBy []string
 }
+
+// foreignSilenceID is the ID of the fake's silence made outside Telegram.
+const foreignSilenceID = "00000000-0000-4000-8000-999999999999"
 
 func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
@@ -63,13 +67,17 @@ func (f *fakeAlertmanager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if f.foreign {
-			out = append(out, map[string]any{"id": "00000000-0000-4000-8000-999999999999", "status": map[string]string{"state": "active"},
+			out = append(out, map[string]any{"id": foreignSilenceID, "status": map[string]string{"state": "active"},
 				"matchers": []map[string]any{{"name": "job", "value": "backup", "isEqual": true}}, "endsAt": "2026-03-02T09:00:00Z", "createdBy": "ops@example.com"})
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v2/alerts":
-		f.filters = r.URL.Query()["filter"]
-		io.WriteString(w, "["+strings.TrimSuffix(strings.Repeat(`{"labels":{}},`, f.alerts), ",")+"]")
+		var out []map[string]any
+		for range f.alerts {
+			out = append(out, map[string]any{"labels": map[string]string{"alertname": "DiskAlmostFull", "cluster": "lab", "instance": "server-a"},
+				"status": map[string]any{"state": "active", "silencedBy": f.silencedBy}})
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2/silence/"):
 		f.expired = append(f.expired, strings.TrimPrefix(r.URL.Path, "/api/v2/silence/"))
 		if f.notFound {

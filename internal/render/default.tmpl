@@ -24,7 +24,7 @@
 {{end}}
 {{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}}{{with tgago .}} ({{.}}){{end}}{{end}}{{end}}
 {{- with .Silence}}
-🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{end}}
+🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{if .External}} in Alertmanager{{end}}{{end}}
 {{- with .Ack}}
 👀 {{.By | oneline | clip 64}} is on it since {{tgtime .Since "wt"}}{{end}}
 {{- if $firing}}{{with description (index $firing 0) | clip $.Limits.Description}}

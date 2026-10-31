@@ -65,6 +65,9 @@ type Incident struct {
 	ButtonsIssued time.Time `json:"buttonsIssued,omitzero"`
 	// Silence is the silence made through this message's buttons, if any.
 	Silence *Silence `json:"silence,omitempty"`
+	// ExternalSilence is a silence made outside Telegram (Alertmanager UI,
+	// amtool) that covers all the group's alerts; ByName is its createdBy.
+	ExternalSilence *Silence `json:"externalSilence,omitempty"`
 	// Ack is who said "I'm on it", if anyone.
 	Ack *Ack `json:"ack,omitempty"`
 	// Escalations counts the escalation replies sent so far; LastEscalation
