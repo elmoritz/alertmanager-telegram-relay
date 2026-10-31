@@ -128,7 +128,10 @@ since Mon 04:56 (2h 23m ago)                 ← <tg-time> "wt" and "r", so it s
 ```
 
 The summary line is the alert's `summary` annotation, else its `instance`
-label, else its `alertname`. The description is the `description` annotation,
+label, else its `alertname`. Alerts whose summaries are the same get the
+labels that tell them apart appended, at most two, sorted by name
+(`server-1 is down · device=sdb`); in the alert list, the resolved layout and
+the "added" reply. The description is the `description` annotation,
 else `message`. The text inside `<tg-time>` is a fallback for clients without
 date-time entities, formatted in `TIMEZONE`.
 
@@ -147,7 +150,7 @@ end).
   existing Alertmanager templates port with little change, plus `.Added`,
   `.OpenedAt`, `.Now`, `.Limits`, `.Silence` and `.Ack`. Helper functions: `clip`, `oneline`,
   `first`, `more`, `summary`, `description`, `alertname`, `severity`,
-  `earliest`, `duration`, `httpURL`, `tgtime`, `tgago`. The templates are tried
+  `earliest`, `duration`, `httpURL`, `tgtime`, `tgago`, `apart`. The templates are tried
   on a sample notification at startup; a broken one stops the relay from
   starting.
 - **Format: Telegram HTML** (`parse_mode: HTML`), not rich messages

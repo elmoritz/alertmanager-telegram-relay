@@ -1,0 +1,36 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"DiskAlmostFull\", instance=\"server-1\"}",
+  "status": "firing",
+  "receiver": "telegram",
+  "groupLabels": {"alertname": "DiskAlmostFull", "instance": "server-1"},
+  "commonLabels": {"alertname": "DiskAlmostFull", "instance": "server-1", "severity": "warning"},
+  "commonAnnotations": {"summary": "server-1 is down"},
+  "externalURL": "http://alertmanager:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {"alertname": "DiskAlmostFull", "instance": "server-1", "device": "sda", "severity": "warning"},
+      "annotations": {"summary": "server-1 is down"},
+      "startsAt": "2026-03-02T05:10:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "fingerprint": "c1b2c3d4e5f60001"
+    },
+    {
+      "status": "firing",
+      "labels": {"alertname": "DiskAlmostFull", "instance": "server-1", "device": "sdb", "severity": "warning"},
+      "annotations": {"summary": "server-1 is down"},
+      "startsAt": "2026-03-02T05:12:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "fingerprint": "c1b2c3d4e5f60002"
+    },
+    {
+      "status": "firing",
+      "labels": {"alertname": "DiskAlmostFull", "instance": "server-1", "device": "nvme0<n1>", "severity": "warning"},
+      "annotations": {"summary": "a different summary"},
+      "startsAt": "2026-03-02T05:12:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "fingerprint": "c1b2c3d4e5f60003"
+    }
+  ]
+}

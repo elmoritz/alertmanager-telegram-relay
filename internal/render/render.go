@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"net/url"
 	"regexp"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -380,6 +381,7 @@ func (r *Renderer) funcs() template.FuncMap {
 		"httpURL":   HTTPURL,
 		"tgtime":    r.tgtime,
 		"tgago":     r.tgago,
+		"apart":     apart,
 		"description": func(a alertmanager.Alert) string {
 			return cmp.Or(a.Annotations["description"], a.Annotations["message"])
 		},
@@ -399,6 +401,47 @@ func clip(n int, s string) string {
 }
 
 // oneline collapses all whitespace, including newlines, to single spaces.
+// maxApartLabels bounds how many differing labels apart names.
+const maxApartLabels = 2
+
+// apart tells a apart from the alerts in as that have the same summary: the
+// labels whose values differ among them, "device=sdb", or "" if the summary
+// is unique. Label values are alert content and escaped by the template.
+func apart(as Alerts, a alertmanager.Alert) string {
+	var same []alertmanager.Alert
+	for _, x := range as {
+		if summary(x) == summary(a) {
+			same = append(same, x)
+		}
+	}
+	if len(same) < 2 {
+		return ""
+	}
+	names := map[string]bool{}
+	for _, x := range same {
+		for k := range x.Labels {
+			names[k] = true
+		}
+	}
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(names)) {
+		differs := false
+		for _, x := range same {
+			if x.Labels[k] != a.Labels[k] {
+				differs = true
+				break
+			}
+		}
+		if differs && a.Labels[k] != "" {
+			parts = append(parts, k+"="+oneline(a.Labels[k]))
+			if len(parts) == maxApartLabels {
+				break
+			}
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func oneline(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // first returns at most n alerts.

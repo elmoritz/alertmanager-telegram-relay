@@ -64,7 +64,7 @@ func golden(t *testing.T, name, got string) {
 
 func TestGolden(t *testing.T) {
 	r := renderer(t, "")
-	for _, name := range []string{"firing_single", "firing_group", "firing_many", "resolved_single", "resolved_group", "hostile"} {
+	for _, name := range []string{"firing_single", "firing_group", "firing_many", "firing_same_summary", "resolved_single", "resolved_group", "hostile"} {
 		t.Run(name, func(t *testing.T) {
 			d := NewData(fixture(t, name))
 			d.OpenedAt = time.Date(2026, 3, 2, 4, 57, 0, 0, time.UTC)
@@ -358,4 +358,33 @@ func TestBoard(t *testing.T) {
 	if err != nil || Len(long) > MaxLen || !strings.Contains(long, "more") {
 		t.Errorf("long board: len %d, err %v", Len(long), err)
 	}
+}
+
+func TestApart(t *testing.T) {
+	a := func(labels ...string) alertmanager.Alert {
+		m := map[string]string{"alertname": "X"}
+		for i := 0; i+1 < len(labels); i += 2 {
+			m[labels[i]] = labels[i+1]
+		}
+		return alertmanager.Alert{Labels: m, Annotations: map[string]string{"summary": "same"}}
+	}
+	x, y := a("device", "sda", "job", "node", "zone", "a"), a("device", "sdb", "job", "smart", "zone", "b")
+	if got := apart(Alerts{x, y}, x); got != "device=sda, job=node" { // at most two, sorted
+		t.Errorf("apart = %q", got)
+	}
+	if got := apart(Alerts{x}, x); got != "" {
+		t.Errorf("unique summary: %q", got)
+	}
+	// Label values reach Telegram escaped.
+	r := renderer(t, "")
+	hostile := a("device", "<b>sda</b>")
+	m := &alertmanager.Message{Status: alertmanager.StatusFiring, Alerts: Alerts{hostile, a("device", "sdb")}}
+	for i := range m.Alerts {
+		m.Alerts[i].Status = alertmanager.StatusFiring
+	}
+	msg, err := r.Message(NewData(m))
+	if err != nil || !strings.Contains(msg, "device=&lt;b&gt;sda&lt;/b&gt;") {
+		t.Errorf("message = %q, %v", msg, err)
+	}
+	assertWellFormed(t, msg)
 }
