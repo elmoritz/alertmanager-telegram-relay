@@ -18,8 +18,10 @@ built-in Telegram receiver cannot do:
 > critical alerts; an optional pinned status board; `/alerts` and
 > `/silences` answered only to whoever asks; an optional daily digest; Grafana
 > panel images for new alerts. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
-> and roadmap, and [examples/](examples/) for a Compose setup, the
-> Alertmanager receiver and the fallback alerts.
+> and roadmap, [examples/](examples/) for a Compose setup, the Alertmanager
+> receiver and the fallback alerts, [CHANGELOG.md](CHANGELOG.md) for what
+> changed, and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for what stays
+> stable across versions.
 
 ## How it fits
 

@@ -560,7 +560,9 @@ names the variable but never echoes its value.
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check
-has passed.
+has passed. Every release has a section in CHANGELOG.md (the release
+workflow publishes it as the release notes and fails without it); what
+counts as a breaking change is in docs/COMPATIBILITY.md.
 
 Each milestone ships with tests: unit tests for rendering (golden files built
 from hand-written fixtures), the incident state machine and authorisation;

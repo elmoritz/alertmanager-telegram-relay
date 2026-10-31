@@ -31,3 +31,43 @@ groups:
           severity: critical
         annotations:
           summary: The Telegram relay gave up delivering notifications to Telegram.
+
+  # Degraded, not down: alerts still arrive, so these may go through the relay.
+  - name: alertmanager-telegram-relay-degraded
+    rules:
+      - alert: TelegramRelayQueueBacklog
+        expr: relay_queue_length > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Notifications are piling up in the Telegram relay's queue (Telegram slow or rate-limiting).
+
+      - alert: TelegramRelayButtonsNotWorking
+        expr: increase(relay_telegram_requests_total{method="getUpdates",result!="ok"}[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: The Telegram relay cannot poll for button presses (another consumer of the bot token, or a webhook set on the bot).
+
+      - alert: TelegramRelayAlertmanagerUnreachable
+        expr: increase(relay_alertmanager_requests_total{result="error"}[15m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: The Telegram relay cannot reach Alertmanager's API; silence buttons and silence checks fail.
+
+      - alert: TelegramRelayTemplateErrors
+        expr: increase(relay_template_errors_total[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: The Telegram relay fell back to its minimal message; check TEMPLATE_FILE and the relay's log.
+
+      - alert: TelegramRelayGraphImagesFailing
+        expr: increase(relay_graph_images_total{result!="ok"}[1h]) > 0
+        labels:
+          severity: info
+        annotations:
+          summary: Grafana panel images are not being sent (renderer, token or GRAFANA_RENDER_URL).
