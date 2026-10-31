@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -91,11 +93,16 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 	if err != nil {
 		return &Error{Method: method, Description: "encoding request: " + err.Error()}
 	}
+	return c.post(ctx, method, "application/json", body, result)
+}
+
+// post sends one Bot API request with an encoded body.
+func (c *Client) post(ctx context.Context, method, contentType string, body []byte, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/bot"+c.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
 		return &Error{Method: method, Description: c.redact(err.Error())}
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -378,6 +385,53 @@ func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID int64, eph
 		return nil
 	}
 	return err
+}
+
+// Photo is an image to send as a reply (graph images, SPEC §8).
+type Photo struct {
+	ChatID   int64
+	ThreadID int
+	ReplyTo  int
+	Silent   bool
+	PNG      []byte
+}
+
+// SendPhoto uploads a PNG image and returns the new message's ID.
+func (c *Client) SendPhoto(ctx context.Context, p Photo) (int, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	field := func(name, value string) { _ = w.WriteField(name, value) }
+	field("chat_id", strconv.FormatInt(p.ChatID, 10))
+	if p.ThreadID != 0 {
+		field("message_thread_id", strconv.Itoa(p.ThreadID))
+	}
+	if p.ReplyTo != 0 {
+		rp, _ := json.Marshal(replyParameters{MessageID: p.ReplyTo, AllowSendingWithoutReply: true})
+		field("reply_parameters", string(rp))
+	}
+	if p.Silent {
+		field("disable_notification", "true")
+	}
+	if c.ProtectContent {
+		field("protect_content", "true")
+	}
+	part, err := w.CreateFormFile("photo", "graph.png")
+	if err == nil {
+		_, err = part.Write(p.PNG)
+	}
+	if err == nil {
+		err = w.Close()
+	}
+	if err != nil {
+		return 0, &Error{Method: "sendPhoto", Description: "encoding request: " + err.Error()}
+	}
+	var res struct {
+		MessageID int `json:"message_id"`
+	}
+	if err := c.post(ctx, "sendPhoto", w.FormDataContentType(), buf.Bytes(), &res); err != nil {
+		return 0, err
+	}
+	return res.MessageID, nil
 }
 
 // Command is a bot command for SetCommands.

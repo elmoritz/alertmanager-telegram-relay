@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,21 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			MessageID int `json:"message_id"`
 		} `json:"reply_parameters"`
 		Reaction []telegram.ReactionType `json:"reaction"`
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") { // sendPhoto
+		_ = r.ParseMultipartForm(1 << 20)
+		chatID, _ := strconv.ParseInt(r.FormValue("chat_id"), 10, 64)
+		thread, _ := strconv.Atoi(r.FormValue("message_thread_id"))
+		c := call{Method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], ChatID: chatID, ThreadID: thread, DisableNotification: r.FormValue("disable_notification") == "true"}
+		var rp struct {
+			MessageID int `json:"message_id"`
+		}
+		_ = json.Unmarshal([]byte(r.FormValue("reply_parameters")), &rp)
+		c.ReplyTo = rp.MessageID
+		f.calls = append(f.calls, c)
+		f.nextID++
+		fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, f.nextID)
+		return
 	}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &p)

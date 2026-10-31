@@ -475,3 +475,35 @@ func TestChatMigrated(t *testing.T) {
 		t.Error("MigratedTo of another error")
 	}
 }
+
+func TestSendPhoto(t *testing.T) {
+	var form map[string][]string
+	var file []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot"+testToken+"/sendPhoto" {
+			t.Errorf("path %q", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		form = r.MultipartForm.Value
+		f, _, err := r.FormFile("photo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, _ = io.ReadAll(f)
+		io.WriteString(w, `{"ok":true,"result":{"message_id":9}}`)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, testToken)
+	c.ProtectContent = true
+	id, err := c.SendPhoto(context.Background(), Photo{ChatID: -1001234567890, ThreadID: 7, ReplyTo: 42, Silent: true, PNG: []byte("\x89PNG")})
+	if err != nil || id != 9 {
+		t.Fatalf("id %d, err %v", id, err)
+	}
+	if string(file) != "\x89PNG" || form["chat_id"][0] != "-1001234567890" || form["message_thread_id"][0] != "7" ||
+		form["disable_notification"][0] != "true" || form["protect_content"][0] != "true" ||
+		!strings.Contains(form["reply_parameters"][0], `"message_id":42`) {
+		t.Errorf("form %v, file %q", form, file)
+	}
+}

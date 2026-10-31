@@ -28,6 +28,12 @@ type Telegram interface {
 	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
 	PinChatMessage(ctx context.Context, chatID int64, messageID int) error
 	EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *telegram.Keyboard) error
+	SendPhoto(ctx context.Context, p telegram.Photo) (int, error)
+}
+
+// GraphRenderer renders a Grafana panel as PNG (internal/grafana).
+type GraphRenderer interface {
+	RenderPanel(ctx context.Context, panelURL string) ([]byte, error)
 }
 
 // Processor carries out the plan for one notification. It also renders and
@@ -56,6 +62,11 @@ type Processor struct {
 	DigestAt    *int
 	DigestChats []int64
 	Location    *time.Location
+	// Graphs, if set, renders the panel_url annotation of a new incident as
+	// a photo reply (SPEC §8).
+	Graphs GraphRenderer
+
+	graphs sync.WaitGroup
 
 	// RetryFor bounds how long temporary Telegram failures are retried for
 	// one notification (SPEC §9).
@@ -125,6 +136,7 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			log.Error("storing incident failed", "err", err)
 		}
 		log.Info("incident opened", "alerts", len(plan.Firing))
+		p.sendGraph(ctx, log, inc, m)
 		return nil
 
 	case Changed, Repeat:

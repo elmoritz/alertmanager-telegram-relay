@@ -121,12 +121,21 @@ the Telegram account that owns the bot.
   result). An over-long message must degrade to a shorter message, never to no
   message.
 
-### 6. Alertmanager API (relay → Alertmanager)
+### 6. Alertmanager and Grafana APIs (relay → Alertmanager, Grafana)
 
 - Credentials for the Alertmanager API (basic or bearer) are optional and
   handled like every other secret.
-- Use HTTPS with certificate verification wherever Alertmanager is reached over
-  an untrusted network. There is no `insecure_skip_verify` option.
+- Use HTTPS with certificate verification wherever Alertmanager or Grafana is
+  reached over an untrusted network. There is no `insecure_skip_verify`
+  option.
+- The Grafana token (`GRAFANA_TOKEN`, a Viewer service account) is sent only
+  to `GRAFANA_RENDER_URL` (default `GRAFANA_URL`), and redirects are never
+  followed. A `panel_url` annotation is alert content: the relay renders it
+  only if it points at the same scheme, host and port as `GRAFANA_URL`,
+  builds the render URL itself, and takes over only the dashboard UID, the
+  panel ID, `orgId`, `from`/`to` and `var-*` values, each checked against a
+  strict pattern. Render errors never include the URL, Grafana's response
+  body or the token.
 
 ### 7. Runtime and supply chain
 

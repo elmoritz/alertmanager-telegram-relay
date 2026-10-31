@@ -217,6 +217,9 @@ func TestRoutingAndQuiet(t *testing.T) {
 	m["ESCALATE_AFTER"] = "15m"
 	m["STATUS_BOARD"] = "true"
 	m["DIGEST_AT"] = "08:30"
+	m["GRAFANA_URL"] = "https://grafana.example.com"
+	m["GRAFANA_TOKEN"] = "glsa_TEST-grafana-token"
+	m["GRAFANA_RENDER_URL"] = "http://grafana.internal.example.com:3000"
 	if c, err = load(env(m), noFiles); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +227,12 @@ func TestRoutingAndQuiet(t *testing.T) {
 	if len(r.Rules) != 2 || r.Pick(map[string]string{"team": "media"}).ThreadID != 42 || r.Default.ChatID != -1001234567890 {
 		t.Errorf("router %+v", r)
 	}
-	if c.EscalateAfter != 15*time.Minute || !c.StatusBoard || c.DigestAt == nil || *c.DigestAt != 510 {
+	var logged strings.Builder
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("c", "c", c)
+	if strings.Contains(logged.String()+c.String(), "glsa_TEST-grafana-token") {
+		t.Error("grafana token printed")
+	}
+	if c.EscalateAfter != 15*time.Minute || !c.StatusBoard || c.DigestAt == nil || *c.DigestAt != 510 || c.GrafanaToken != "glsa_TEST-grafana-token" || c.GrafanaRenderURL != "http://grafana.internal.example.com:3000" {
 		t.Errorf("escalate after %s", c.EscalateAfter)
 	}
 	q := c.Quiet()
@@ -244,6 +252,8 @@ func TestRoutingAndQuietInvalid(t *testing.T) {
 		"escalate not duration": {"ESCALATE_AFTER": "soon"},
 		"board not bool":        {"STATUS_BOARD": "pinned"},
 		"digest time":           {"DIGEST_AT": "8.30"},
+		"token without url":     {"GRAFANA_TOKEN": "glsa_TEST-grafana-token"},
+		"render url":            {"GRAFANA_RENDER_URL": "ftp://grafana"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := valid()

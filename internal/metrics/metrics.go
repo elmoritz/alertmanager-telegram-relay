@@ -32,6 +32,8 @@ type Metrics struct {
 	AlertmanagerRequests *prometheus.CounterVec
 	// Escalations counts escalation replies sent.
 	Escalations prometheus.Counter
+	// GraphImages counts graph images by result (ok, render_error, send_error).
+	GraphImages *prometheus.CounterVec
 }
 
 // New registers the metrics. queueLen and openIncidents are read on scrape.
@@ -79,11 +81,15 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 			Name: "relay_escalations_total",
 			Help: "Escalation replies sent for unacknowledged critical incidents.",
 		}),
+		GraphImages: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relay_graph_images_total",
+			Help: "Grafana panel images for new incidents, by result (ok, render_error, send_error).",
+		}, []string{"result"}),
 	}
 	reg.MustRegister(
 		m.NotificationsReceived, m.WebhookRejected, m.TelegramRequests,
 		m.DeliveryRetries, m.DeliveriesDropped, m.TemplateErrors,
-		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests, m.Escalations,
+		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests, m.Escalations, m.GraphImages,
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "relay_queue_length",
 			Help: "Notifications waiting to be delivered to Telegram.",
