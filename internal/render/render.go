@@ -590,6 +590,11 @@ func (r *Renderer) tgtime(t time.Time, format string) (template.HTML, error) {
 	if !strings.ContainsAny(format, "dD") && r.now().Sub(t) > 6*24*time.Hour {
 		fallback = t.In(r.loc).Format("Mon 2 Jan 15:04 MST")
 	}
+	if t.Unix() <= 0 {
+		// A broken sender's start time (before 1970) is no valid date-time
+		// entity; show the plain text.
+		return template.HTML(html.EscapeString(fallback)), nil
+	}
 	return template.HTML(fmt.Sprintf(`<tg-time unix="%d" format="%s">%s</tg-time>`, t.Unix(), format, html.EscapeString(fallback))), nil
 }
 
@@ -599,6 +604,9 @@ func (r *Renderer) tgago(t time.Time) template.HTML {
 	d := duration(t, r.now())
 	if d == "" {
 		return ""
+	}
+	if t.Unix() <= 0 {
+		return template.HTML(html.EscapeString(d) + " ago")
 	}
 	return template.HTML(fmt.Sprintf(`<tg-time unix="%d" format="r">%s ago</tg-time>`, t.Unix(), html.EscapeString(d)))
 }

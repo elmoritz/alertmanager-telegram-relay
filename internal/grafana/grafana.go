@@ -125,6 +125,7 @@ func (c *Client) RenderURL(panelURL string) (*url.URL, error) {
 		slug = "panel"
 	}
 	r := c.render.JoinPath("render", "d-solo", m[1], slug)
+	r.Path = "/" + strings.TrimPrefix(r.Path, "/") // JoinPath on an empty base path leaves it relative
 	r.RawQuery = out.Encode()
 	return r, nil
 }

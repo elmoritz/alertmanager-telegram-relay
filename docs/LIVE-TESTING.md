@@ -89,6 +89,21 @@ variables are set.
 The interactive test prints your user and chat ID; don't paste its output
 into issues.
 
+## Fuzzing
+
+The parsers of outside input have fuzz tests; `go test ./...` runs their seed
+cases, and inputs that once failed are kept in `testdata/fuzz/`. Before a
+release, fuzz each for a while:
+
+```bash
+for t in "render FuzzMessage" "render FuzzBoard" "route FuzzParse" \
+         "incident FuzzParseCustomSilence" "grafana FuzzRenderURL"; do
+  set -- $t; go test -run '^$' -fuzz "^$2\$" -fuzztime 60s ./internal/$1/
+done
+```
+
+(In zsh, run it with `bash -c '…'`.)
+
 ## Manual checklist (v0.2)
 
 Run the relay from the repository against the local Alertmanager:
