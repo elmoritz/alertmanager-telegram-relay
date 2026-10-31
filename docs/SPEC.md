@@ -404,7 +404,9 @@ Inline keyboard under every firing message:
   without it Grafana answers with an error and no image is sent.
 - `panel_url` is a Grafana panel link, `…/d/<uid>/<slug>?viewPanel=<id>` or
   `…/d-solo/<uid>/<slug>?panelId=<id>`, on the same scheme, host and port as
-  `GRAFANA_URL` (SECURITY.md §6). The image is 1000×500, covers the link's
+  `GRAFANA_URL` (SECURITY.md §6): the address people open. The relay renders
+  through `GRAFANA_RENDER_URL` if set, e.g. an internal address when
+  `GRAFANA_URL` is a public one behind single sign-on. The image is 1000×500, covers the link's
   `from`/`to` if valid, else the last 3 hours, in `TIMEZONE`, with the link's
   `var-*` values and `orgId`.
 - Strictly best-effort and in the background: the text message is sent
@@ -462,6 +464,7 @@ names the variable but never echoes its value.
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
 | `GRAFANA_TOKEN` | v0.4 | for graph images | | Grafana service-account token (Viewer); turns on graph images (§8) |
+| `GRAFANA_RENDER_URL` | v0.4 | | `GRAFANA_URL` | Where the relay reaches Grafana to render panels, if not at `GRAFANA_URL` (§8) |
 | `SHOW_SOURCE_BUTTON` | v0.2 | | `false` | 🔗 Source button with the first alert's `generatorURL` |
 | `PROTECT_CONTENT` | v0.2 | | `false` | Send every message with `protect_content`, so alert messages cannot be forwarded or saved (this also blocks forwarding to yourself). Link previews are always off. |
 | `INCIDENT_TTL` | v0.1 | | `720h` | Forget unresolved incidents this long after their last notification |
@@ -529,10 +532,10 @@ names the variable but never echoes its value.
    and the status board (#6) in v0.3.2. Live checks passed. Topics in
    private chats (#9) are deferred: they need BotFather's threaded mode,
    which may cost a fee, and are reported to fail.
-4. **v0.4, extras (in progress):** `/alerts` and `/silences` as ephemeral
-   answers (#10) and the daily digest (#12) in v0.4.0 (live check passed);
-   graph images (§8) and the rich-message evaluation (#11) for v0.4.1;
-   topics in private chats (#9) still open.
+4. **v0.4, extras:** `/alerts` and `/silences` as ephemeral answers (#10)
+   and the daily digest (#12) in v0.4.0; graph images (§8) in v0.4.1; rich
+   messages evaluated and not adopted (#11, see §4). Live checks passed.
+   Still open: topics in private chats (#9).
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check

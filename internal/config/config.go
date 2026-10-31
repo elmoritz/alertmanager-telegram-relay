@@ -55,7 +55,10 @@ type Config struct {
 	GrafanaURL string
 	// GrafanaToken is a service-account token for rendering panels (graph
 	// images, SPEC §8); empty: no graph images.
-	GrafanaToken     string
+	GrafanaToken string
+	// GrafanaRenderURL is where the relay reaches Grafana for rendering,
+	// if not at GrafanaURL (e.g. an internal address); empty: GrafanaURL.
+	GrafanaRenderURL string
 	ShowSourceButton bool
 	ProtectContent   bool
 
@@ -185,6 +188,13 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		}
 	}
 	c.GrafanaToken = secret("GRAFANA_TOKEN")
+	if v := str("GRAFANA_RENDER_URL", ""); v != "" {
+		if u, err := httpBaseURL(v); err != nil {
+			fail(fmt.Errorf("GRAFANA_RENDER_URL: %w", err))
+		} else {
+			c.GrafanaRenderURL = u.String()
+		}
+	}
 	if c.GrafanaToken != "" && c.GrafanaURL == "" {
 		fail(errors.New("GRAFANA_TOKEN needs GRAFANA_URL"))
 	}

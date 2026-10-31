@@ -113,6 +113,26 @@ func Topic(t *testing.T, name string) int {
 	return id
 }
 
+// Grafana returns the test Grafana's URL (RELAY_LIVE_GRAFANA_URL), the
+// token from the file RELAY_LIVE_GRAFANA_TOKEN_FILE and a panel link
+// (RELAY_LIVE_GRAFANA_PANEL_URL), or skips the test.
+func Grafana(t *testing.T) (base *url.URL, token, panelURL string) {
+	t.Helper()
+	v, f, panelURL := os.Getenv("RELAY_LIVE_GRAFANA_URL"), os.Getenv("RELAY_LIVE_GRAFANA_TOKEN_FILE"), os.Getenv("RELAY_LIVE_GRAFANA_PANEL_URL")
+	if v == "" || f == "" || panelURL == "" {
+		t.Skip("RELAY_LIVE_GRAFANA_URL, _TOKEN_FILE or _PANEL_URL not set")
+	}
+	base, err := url.Parse(v)
+	if err != nil || base.Host == "" {
+		t.Fatal("RELAY_LIVE_GRAFANA_URL is not a URL")
+	}
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatalf("reading RELAY_LIVE_GRAFANA_TOKEN_FILE: %v", err)
+	}
+	return base, strings.TrimSpace(string(b)), panelURL
+}
+
 // Interactive skips the test unless RELAY_LIVE_INTERACTIVE=1: it needs
 // someone to press a button in the test chat.
 func Interactive(t *testing.T) {

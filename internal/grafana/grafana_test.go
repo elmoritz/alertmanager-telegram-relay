@@ -18,7 +18,22 @@ func client(t *testing.T, base string) *Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(u, testToken, "Europe/Berlin")
+	return New(u, nil, testToken, "Europe/Berlin")
+}
+
+// Panel links point at the public Grafana; the relay renders through an
+// internal address.
+func TestRenderBase(t *testing.T) {
+	public, _ := url.Parse("https://grafana.example.com")
+	internal, _ := url.Parse("http://grafana.internal.example.com:3000")
+	c := New(public, internal, testToken, "")
+	got, err := c.RenderURL("https://grafana.example.com/d/abc/x?viewPanel=2")
+	if err != nil || got.String() != "http://grafana.internal.example.com:3000/render/d-solo/abc/x?from=now-3h&height=500&panelId=2&to=now&width=1000" {
+		t.Errorf("got %v, %v", got, err)
+	}
+	if _, err := c.RenderURL("http://grafana.internal.example.com:3000/d/abc/x?viewPanel=2"); err == nil {
+		t.Error("a panel link must point at GRAFANA_URL, not the render address")
+	}
 }
 
 func TestRenderURL(t *testing.T) {
@@ -103,5 +118,23 @@ func TestRenderErrorsLeakNothing(t *testing.T) {
 	_, err := c.RenderPanel(context.Background(), srv.URL+"/d/abc/x?var-host=server-1&viewPanel=1")
 	if err == nil || strings.Contains(err.Error(), "server-1") || strings.Contains(err.Error(), testToken) {
 		t.Errorf("network error = %v", err)
+	}
+}
+
+// A bad token makes Grafana redirect to its login page; the relay must not
+// follow, so the token is never sent anywhere but the render URL.
+func TestRedirectIsNotFollowed(t *testing.T) {
+	var followed bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			followed = true
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusFound)
+	}))
+	defer srv.Close()
+	_, err := client(t, srv.URL).RenderPanel(context.Background(), srv.URL+"/d/abc/x?viewPanel=1")
+	if err == nil || !strings.Contains(err.Error(), "302") || followed {
+		t.Errorf("err %v, followed %v", err, followed)
 	}
 }

@@ -16,7 +16,8 @@ built-in Telegram receiver cannot do:
 > Grafana/runbook and copy buttons; routing to chats and forum topics by
 > labels, quiet severities and quiet hours; escalation of unacknowledged
 > critical alerts; an optional pinned status board; `/alerts` and
-> `/silences` answered only to whoever asks; an optional daily digest. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> `/silences` answered only to whoever asks; an optional daily digest; Grafana
+> panel images for new alerts. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
 > and roadmap, and [examples/](examples/) for a Compose setup, the
 > Alertmanager receiver and the fallback alerts.
 

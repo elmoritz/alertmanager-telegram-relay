@@ -143,6 +143,7 @@ Tick each item, and note anything that differs:
 - [ ] **Status board** (`STATUS_BOARD=true`): one pinned board in General, "🚦 N firing" with working links and 😴/👀 markers, "✅ All clear since …" when nothing fires.
 - [ ] **Commands:** `/alerts` and `/silences` are answered so only the asker sees it; "↩️ End silence N" ends a Telegram silence, updates the incident and re-renders the list.
 - [ ] **Digest:** with `DIGEST_AT` in the past for today, one quiet "📋 Daily digest" arrives, and only once per day.
+- [ ] **Graph images** (`RELAY_LIVE_GRAFANA_URL`, `_TOKEN_FILE`, `_PANEL_URL`; Grafana with the image renderer): `go test -tags=live ./internal/grafana/` renders the panel; an alert with a `panel_url` annotation gets the panel as a silent photo reply, and its 📈 Grafana button opens `GRAFANA_URL`.
 - [ ] **Resolved while silenced:** silence an alert from Telegram, then `resolve` it. Alertmanager sends nothing, but within about 6 minutes the relay edits the message to resolved (log: "silenced alerts resolved without a notification").
 - [ ] **Silenced status:** while silenced, a greyed-out "🔕 Silenced until … by …" sits above a highlighted ↩️ Unsilence; tapping the grey one does nothing.
 - [ ] **Resolved status:** a resolved message keeps one greyed-out "✅ Resolved after …" button; tapping it does nothing.

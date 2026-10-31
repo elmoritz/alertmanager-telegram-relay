@@ -1,10 +1,11 @@
 // Package grafana renders dashboard panels as PNG images through Grafana's
 // /render endpoint (SPEC §8). It needs Grafana's image renderer.
 //
-// The service-account token is sent only to GRAFANA_URL: a panel URL comes
-// from an alert annotation, so the relay builds the render URL itself from
-// GRAFANA_URL and takes over only the dashboard, the panel and a few known
-// query parameters (SECURITY.md §6).
+// The service-account token is sent only to the render base (GRAFANA_RENDER_URL,
+// default GRAFANA_URL): a panel URL comes from an alert annotation, so it must
+// point at GRAFANA_URL, and the relay builds the render URL itself, taking
+// over only the dashboard, the panel and a few known query parameters
+// (SECURITY.md §6).
 package grafana
 
 import (
@@ -33,19 +34,31 @@ var ErrNotAPanel = errors.New("not a Grafana panel URL")
 
 // Client renders panels from one Grafana.
 type Client struct {
-	base  *url.URL
-	token string
-	tz    string
-	http  *http.Client
+	base   *url.URL // where panel links point (GRAFANA_URL)
+	render *url.URL // where the relay renders (GRAFANA_RENDER_URL)
+	token  string
+	tz     string
+	http   *http.Client
 
 	// OnCall, if set, is called after every render with "ok" or "error".
 	OnCall func(result string)
 }
 
-// New returns a client for the Grafana at base (GRAFANA_URL), with a
-// service-account token; tz is the IANA zone for the panel's time axis.
-func New(base *url.URL, token, tz string) *Client {
-	return &Client{base: base, token: token, tz: tz, http: &http.Client{Timeout: timeout}}
+// New returns a client for the Grafana whose panel links point at base
+// (GRAFANA_URL) and which the relay reaches at render (GRAFANA_RENDER_URL;
+// nil: base), with a service-account token; tz is the IANA zone for the
+// panel's time axis.
+func New(base, render *url.URL, token, tz string) *Client {
+	if render == nil {
+		render = base
+	}
+	return &Client{base: base, render: render, token: token, tz: tz, http: &http.Client{
+		Timeout: timeout,
+		// The token goes to the render URL only. Grafana answers a bad token
+		// with a redirect to its login page; that is an error, not a page to
+		// follow.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}
 }
 
 var (
@@ -111,7 +124,7 @@ func (c *Client) RenderURL(panelURL string) (*url.URL, error) {
 	if slug == "" {
 		slug = "panel"
 	}
-	r := c.base.JoinPath("render", "d-solo", m[1], slug)
+	r := c.render.JoinPath("render", "d-solo", m[1], slug)
 	r.RawQuery = out.Encode()
 	return r, nil
 }

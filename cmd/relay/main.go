@@ -149,8 +149,12 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
 	}
 	if cfg.GrafanaToken != "" {
-		u, _ := url.Parse(cfg.GrafanaURL) // validated by config
-		processor.Graphs = grafana.New(u, cfg.GrafanaToken, cfg.Location.String())
+		base, _ := url.Parse(cfg.GrafanaURL) // validated by config
+		var render *url.URL
+		if cfg.GrafanaRenderURL != "" {
+			render, _ = url.Parse(cfg.GrafanaRenderURL)
+		}
+		processor.Graphs = grafana.New(base, render, cfg.GrafanaToken, cfg.Location.String())
 	}
 	if cfg.DigestAt != nil {
 		go every(runCtx, incident.DigestCheckInterval, processor.CheckDigest)
