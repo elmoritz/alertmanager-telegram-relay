@@ -85,7 +85,9 @@ func TestRemedyConfirmAndRun(t *testing.T) {
 		t.Fatalf("toast %q, started %v", toast, r.started)
 	}
 	expectCalls(t, calls, "editEphemeralMessageText", "sendMessage(reply #1) silent", "editMessageText(#2)")
-	if calls[1].Text != "🛠 Alice: Restart stack lab …" || !strings.HasPrefix(calls[2].Text, "✅ Alice: Restart stack lab, done after") {
+	// A run under a minute is "<1m", escaped: Telegram refused the raw "<"
+	// (found in the live check).
+	if calls[1].Text != "🛠 Alice: Restart stack lab …" || calls[2].Text != "✅ Alice: Restart stack lab, done after &lt;1m." {
 		t.Errorf("reply %q, result %q", calls[1].Text, calls[2].Text)
 	}
 

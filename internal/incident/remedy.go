@@ -179,7 +179,7 @@ func (b *Buttons) runRemedy(ctx context.Context, log *slog.Logger, inc *store.In
 		}
 		log.Info("remediation started", "komodo_update", id)
 		ok, err := b.Komodo.Wait(ctx, id)
-		took := render.Duration(start, p.Now())
+		took := html.EscapeString(render.Duration(start, p.Now())) // "<1m" would break the HTML
 		switch {
 		case err != nil:
 			p.Metrics.Remediations.WithLabelValues("error").Inc()

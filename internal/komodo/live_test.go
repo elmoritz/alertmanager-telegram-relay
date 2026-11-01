@@ -53,6 +53,19 @@ func TestLiveRestartStack(t *testing.T) {
 	}
 	t.Logf("restarted in %s", time.Since(start).Round(100*time.Millisecond))
 
+	deploy, err := komodo.ParseActions([]byte(`{"actions":[{"id":"live","label":"Redeploy test stack","operation":"DeployStack","stack":"` + stack + `","match":{"alertname":"RelayLiveTest"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start = time.Now()
+	if id, err = c.Start(ctx, deploy[0]); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err = c.Wait(ctx, id); err != nil || !ok {
+		t.Fatalf("deploy: ok %v, err %v", ok, err)
+	}
+	t.Logf("redeployed in %s", time.Since(start).Round(100*time.Millisecond))
+
 	// A wrong secret fails without leaking it.
 	_, err = komodo.New(u, read(keyFile), "S-wrong").Start(ctx, actions[0])
 	if err == nil || strings.Contains(err.Error(), "S-wrong") {
