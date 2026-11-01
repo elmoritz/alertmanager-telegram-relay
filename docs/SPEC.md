@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 to v0.5 implemented** (see §13); later milestones are design. This
+Status: **v0.1 to v0.6 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -596,7 +596,7 @@ names the variable but never echoes its value.
    tests for the parsers, a CHANGELOG and release notes, example alert rules
    for the newer metrics, and a documented stable contract for configuration
    and templates.
-6. **v0.6, remediation actions (in progress):** predefined actions (e.g.
+6. **v0.6, remediation actions (done, live check passed):** predefined actions (e.g.
    restart a stack through Komodo) offered as buttons on matching alerts,
    for admins only, with a confirmation press and an audit log line. The
    relay itself runs nothing: it calls the executor's API with a stored
