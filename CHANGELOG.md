@@ -7,13 +7,16 @@ each version's section as its GitHub release notes, so every release needs one.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01
+
 ### Added
 - Silences made outside Telegram (Alertmanager UI, amtool) are shown on the
   incident's message ("silenced until … by … in Alertmanager"), with the 😴
   reaction and no escalation; incidents silenced that way also resolve when
   their alerts are gone.
 - Alerts with the same summary are told apart by the labels that differ
-  (`server-1 is down · device=sdb`); new template helper `apart`.
+  (`server-1 is down · device=sdb`), also in the "added" reply; new template
+  helper `apart`.
 - Fuzz tests for all parsers of outside input.
 - CHANGELOG and release notes; docs/COMPATIBILITY.md; example alert rules for
   the newer metrics.
@@ -92,7 +95,8 @@ each version's section as its GitHub release notes, so every release needs one.
 - Message length counted in code points as Telegram does; quoted values
   stripped from Telegram errors.
 
-[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.3.1...v0.3.2

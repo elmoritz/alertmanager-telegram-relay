@@ -387,4 +387,13 @@ func TestApart(t *testing.T) {
 		t.Errorf("message = %q, %v", msg, err)
 	}
 	assertWellFormed(t, msg)
+
+	// The "added" reply names one new alert; it is told apart from all
+	// firing alerts, not just the added ones (found in the live check).
+	d := NewData(m)
+	d.Added = Alerts{m.Alerts[1]}
+	added, err := r.Added(d)
+	if err != nil || !strings.HasSuffix(added, "same · device=sdb") {
+		t.Errorf("added reply = %q, %v", added, err)
+	}
 }

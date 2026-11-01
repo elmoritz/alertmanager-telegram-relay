@@ -42,7 +42,7 @@
 {{- end}}
 
 {{- define "added" -}}
-➕ {{len .Added}} more firing: {{range $i, $a := first 3 .Added}}{{if $i}}, {{end}}{{summary $a | oneline | clip 100}}{{with apart $.Added $a}} · {{. | clip 60}}{{end}}{{end}}
+➕ {{len .Added}} more firing: {{range $i, $a := first 3 .Added}}{{if $i}}, {{end}}{{summary $a | oneline | clip 100}}{{with apart $.Alerts.Firing $a}} · {{. | clip 60}}{{end}}{{end}}
 {{- with more 3 .Added 0}}, …and {{.}} more{{end}}
 {{- end}}
 

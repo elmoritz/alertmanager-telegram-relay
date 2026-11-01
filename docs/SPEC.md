@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 to v0.4 implemented, v0.5 in progress** (see §13); later milestones are design. This
+Status: **v0.1 to v0.5 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -256,6 +256,10 @@ Inline keyboard under every firing message:
   reaction, no escalation. They are ended where they were made: the message
   offers no Unsilence for them and no silence buttons while they last. A
   `createdBy` of `telegram:<id>` shows as "Telegram", never the ID.
+- **While a group is silenced** (from Telegram or elsewhere), Alertmanager
+  sends no notifications for it, so alerts added or resolved in the meantime
+  do not show on the message. When the silence ends, Alertmanager's next
+  notification carries the whole group again and the message catches up.
 - Link buttons use only `http(s)` URLs. `dashboard_url` and `runbook_url` are
   taken from the first firing alert that has them, else the common
   annotations; `copy_command` likewise. Telegram rejects some URLs (e.g. host
@@ -545,7 +549,7 @@ names the variable but never echoes its value.
    and the daily digest (#12) in v0.4.0; graph images (§8) in v0.4.1; rich
    messages evaluated and not adopted (#11, see §4). Live checks passed.
    Still open: topics in private chats (#9).
-5. **v0.5, v1.0 readiness (in progress):** show silences made outside
+5. **v0.5, v1.0 readiness (done, live check passed):** show silences made outside
    Telegram (Alertmanager UI, amtool) on the incident's message; tell alerts
    with the same summary apart by the label that differs; hardening: fuzz
    tests for the parsers, a CHANGELOG and release notes, example alert rules
