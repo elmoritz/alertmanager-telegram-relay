@@ -54,6 +54,9 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 	switch {
 	case inc.Silence != nil:
 		want = append(want, store.ActionUnsilence)
+	case inc.ExternalSilence != nil:
+		// Silenced outside Telegram: ended there, not here; no second
+		// silence on top.
 	case cfg.Silences && len(inc.GroupLabels) > 0:
 		for range cfg.Durations {
 			want = append(want, store.ActionSilence)
@@ -131,6 +134,8 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 			label += " by " + by
 		}
 		kb.Rows = append(kb.Rows, []telegram.Button{{Text: label, Disabled: true}})
+	} else if s := inc.ExternalSilence; s != nil && inc.Silence == nil {
+		kb.Rows = append(kb.Rows, []telegram.Button{{Text: "🔕 Silenced in Alertmanager until " + p.Render.ShortTime(s.Until), Disabled: true}})
 	}
 	// Silence buttons in one row, "I'm on it" / "Release" in the next: four
 	// buttons in a row are too narrow on a phone.

@@ -89,6 +89,21 @@ variables are set.
 The interactive test prints your user and chat ID; don't paste its output
 into issues.
 
+## Fuzzing
+
+The parsers of outside input have fuzz tests; `go test ./...` runs their seed
+cases, and inputs that once failed are kept in `testdata/fuzz/`. Before a
+release, fuzz each for a while:
+
+```bash
+for t in "render FuzzMessage" "render FuzzBoard" "route FuzzParse" \
+         "incident FuzzParseCustomSilence" "grafana FuzzRenderURL"; do
+  set -- $t; go test -run '^$' -fuzz "^$2\$" -fuzztime 60s ./internal/$1/
+done
+```
+
+(In zsh, run it with `bash -c '…'`.)
+
 ## Manual checklist (v0.2)
 
 Run the relay from the repository against the local Alertmanager:
@@ -144,6 +159,8 @@ Tick each item, and note anything that differs:
 - [ ] **Commands:** `/alerts` and `/silences` are answered so only the asker sees it; "↩️ End silence N" ends a Telegram silence, updates the incident and re-renders the list.
 - [ ] **Digest:** with `DIGEST_AT` in the past for today, one quiet "📋 Daily digest" arrives, and only once per day.
 - [ ] **Graph images** (`RELAY_LIVE_GRAFANA_URL`, `_TOKEN_FILE`, `_PANEL_URL`; Grafana with the image renderer): `go test -tags=live ./internal/grafana/` renders the panel; an alert with a `panel_url` annotation gets the panel as a silent photo reply, and its 📈 Grafana button opens `GRAFANA_URL`.
+- [ ] **Silence made outside Telegram:** a silence created in Alertmanager (UI, amtool or the API) for an alert shows within a minute as "silenced until … by … in Alertmanager" with a disabled button and no silence buttons; ending it brings them back.
+- [ ] **Same summaries:** two alerts of one group that differ only in a label show that label on each line and in the "added" reply.
 - [ ] **Resolved while silenced:** silence an alert from Telegram, then `resolve` it. Alertmanager sends nothing, but within about 6 minutes the relay edits the message to resolved (log: "silenced alerts resolved without a notification").
 - [ ] **Silenced status:** while silenced, a greyed-out "🔕 Silenced until … by …" sits above a highlighted ↩️ Unsilence; tapping the grey one does nothing.
 - [ ] **Resolved status:** a resolved message keeps one greyed-out "✅ Resolved after …" button; tapping it does nothing.

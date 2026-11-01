@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -86,7 +87,10 @@ type Ack struct {
 // Silence describes a silence made through the message's buttons.
 type Silence struct {
 	Until time.Time
-	By    string // the Telegram user's first name: user content, escaped like any other
+	By    string // the Telegram user's first name, or a createdBy: user content, escaped like any other
+	// External is set for a silence made outside Telegram (Alertmanager UI,
+	// amtool).
+	External bool
 }
 
 // Limits bound how much of a notification a template shows.
@@ -377,6 +381,7 @@ func (r *Renderer) funcs() template.FuncMap {
 		"httpURL":   HTTPURL,
 		"tgtime":    r.tgtime,
 		"tgago":     r.tgago,
+		"apart":     apart,
 		"description": func(a alertmanager.Alert) string {
 			return cmp.Or(a.Annotations["description"], a.Annotations["message"])
 		},
@@ -396,6 +401,47 @@ func clip(n int, s string) string {
 }
 
 // oneline collapses all whitespace, including newlines, to single spaces.
+// maxApartLabels bounds how many differing labels apart names.
+const maxApartLabels = 2
+
+// apart tells a apart from the alerts in as that have the same summary: the
+// labels whose values differ among them, "device=sdb", or "" if the summary
+// is unique. Label values are alert content and escaped by the template.
+func apart(as Alerts, a alertmanager.Alert) string {
+	var same []alertmanager.Alert
+	for _, x := range as {
+		if summary(x) == summary(a) {
+			same = append(same, x)
+		}
+	}
+	if len(same) < 2 {
+		return ""
+	}
+	names := map[string]bool{}
+	for _, x := range same {
+		for k := range x.Labels {
+			names[k] = true
+		}
+	}
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(names)) {
+		differs := false
+		for _, x := range same {
+			if x.Labels[k] != a.Labels[k] {
+				differs = true
+				break
+			}
+		}
+		if differs && a.Labels[k] != "" {
+			parts = append(parts, k+"="+oneline(a.Labels[k]))
+			if len(parts) == maxApartLabels {
+				break
+			}
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func oneline(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // first returns at most n alerts.
@@ -544,6 +590,11 @@ func (r *Renderer) tgtime(t time.Time, format string) (template.HTML, error) {
 	if !strings.ContainsAny(format, "dD") && r.now().Sub(t) > 6*24*time.Hour {
 		fallback = t.In(r.loc).Format("Mon 2 Jan 15:04 MST")
 	}
+	if t.Unix() <= 0 {
+		// A broken sender's start time (before 1970) is no valid date-time
+		// entity; show the plain text.
+		return template.HTML(html.EscapeString(fallback)), nil
+	}
 	return template.HTML(fmt.Sprintf(`<tg-time unix="%d" format="%s">%s</tg-time>`, t.Unix(), format, html.EscapeString(fallback))), nil
 }
 
@@ -553,6 +604,9 @@ func (r *Renderer) tgago(t time.Time) template.HTML {
 	d := duration(t, r.now())
 	if d == "" {
 		return ""
+	}
+	if t.Unix() <= 0 {
+		return template.HTML(html.EscapeString(d) + " ago")
 	}
 	return template.HTML(fmt.Sprintf(`<tg-time unix="%d" format="r">%s ago</tg-time>`, t.Unix(), html.EscapeString(d)))
 }

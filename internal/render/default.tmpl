@@ -18,13 +18,13 @@
 {{template "severity_emoji" (severity .)}} {{template "title" .}}
 {{- if gt (len .Alerts) 1}} · {{len $firing}} firing{{with len .Alerts.Resolved}} · {{.}} resolved{{end}}{{end}}
 
-{{range first .Limits.MaxAlerts $firing}}{{summary . | oneline | clip $.Limits.Value}}
+{{range first .Limits.MaxAlerts $firing}}{{summary . | oneline | clip $.Limits.Value}}{{with apart $firing .}} · {{. | clip $.Limits.Value}}{{end}}
 {{end}}
 {{- with more .Limits.MaxAlerts $firing .TruncatedAlerts}}…and {{.}} more
 {{end}}
 {{- with earliest $firing}}{{if not .IsZero}}since {{tgtime . "wt"}}{{with tgago .}} ({{.}}){{end}}{{end}}{{end}}
 {{- with .Silence}}
-🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{end}}
+🔕 silenced until {{tgtime .Until "wt"}} by {{.By | oneline | clip 64}}{{if .External}} in Alertmanager{{end}}{{end}}
 {{- with .Ack}}
 👀 {{.By | oneline | clip 64}} is on it since {{tgtime .Since "wt"}}{{end}}
 {{- if $firing}}{{with description (index $firing 0) | clip $.Limits.Description}}
@@ -35,14 +35,14 @@
 {{- define "resolved" -}}
 ✅ {{template "title" .}} resolved
 {{range first .Limits.MaxAlerts .Alerts}}
-<s>{{summary . | oneline | clip $.Limits.Value}}</s>{{with duration .StartsAt .EndsAt}} after {{.}}{{end}}
+<s>{{summary . | oneline | clip $.Limits.Value}}{{with apart $.Alerts .}} · {{. | clip $.Limits.Value}}{{end}}</s>{{with duration .StartsAt .EndsAt}} after {{.}}{{end}}
 {{- end}}
 {{- with more .Limits.MaxAlerts .Alerts .TruncatedAlerts}}
 …and {{.}} more{{end}}
 {{- end}}
 
 {{- define "added" -}}
-➕ {{len .Added}} more firing: {{range $i, $a := first 3 .Added}}{{if $i}}, {{end}}{{summary $a | oneline | clip 100}}{{end}}
+➕ {{len .Added}} more firing: {{range $i, $a := first 3 .Added}}{{if $i}}, {{end}}{{summary $a | oneline | clip 100}}{{with apart $.Alerts.Firing $a}} · {{. | clip 60}}{{end}}{{end}}
 {{- with more 3 .Added 0}}, …and {{.}} more{{end}}
 {{- end}}
 

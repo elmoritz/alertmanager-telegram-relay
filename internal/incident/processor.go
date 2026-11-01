@@ -231,8 +231,12 @@ func (p *Processor) data(inc *store.Incident, m *alertmanager.Message, added []a
 	d := render.NewData(m)
 	d.Added = added
 	d.OpenedAt = inc.OpenedAt
-	if s := inc.Silence; s != nil && m.Status != alertmanager.StatusResolved {
-		d.Silence = &render.Silence{Until: s.Until, By: s.ByName}
+	if m.Status != alertmanager.StatusResolved {
+		if s := inc.Silence; s != nil {
+			d.Silence = &render.Silence{Until: s.Until, By: s.ByName}
+		} else if s := inc.ExternalSilence; s != nil {
+			d.Silence = &render.Silence{Until: s.Until, By: s.ByName, External: true}
+		}
 	}
 	if a := inc.Ack; a != nil && m.Status != alertmanager.StatusResolved {
 		d.Ack = &render.Ack{Since: a.At, By: a.ByName}
@@ -361,7 +365,7 @@ func (j *job) react(inc *store.Incident, resolved bool) {
 	switch {
 	case resolved:
 		want = reactionResolved
-	case inc.Silence != nil:
+	case inc.Silence != nil || inc.ExternalSilence != nil:
 		want = reactionSilenced
 	case inc.Ack != nil:
 		want = reactionAcked
