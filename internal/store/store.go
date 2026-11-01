@@ -25,6 +25,7 @@ var (
 	bucketBoards    = []byte("boards")
 	bucketHistory   = []byte("history")
 	bucketDigests   = []byte("digests")
+	bucketRemedies  = []byte("remedies")
 )
 
 // FileName is the state file inside STATE_DIR.
@@ -105,6 +106,7 @@ type ButtonRef struct {
 	ActionID string `json:"actionId"`
 	Kind     string `json:"kind"`
 	Label    string `json:"label"`
+	RemedyID string `json:"remedyId,omitempty"`
 }
 
 // HasButton reports whether actionID is on the incident's current keyboard.
@@ -144,6 +146,12 @@ const (
 	// ActionEndSilence is an ↩️ button in a /silences answer: it ends a
 	// silence by ID, for the user who asked, in the chat they asked in.
 	ActionEndSilence = "end_silence"
+	// ActionRemedy offers a remediation action on an incident's message;
+	// ActionRemedyConfirm and ActionRemedyCancel are the buttons of the
+	// confirmation only the presser sees (SECURITY.md §9).
+	ActionRemedy        = "remedy"
+	ActionRemedyConfirm = "remedy_confirm"
+	ActionRemedyCancel  = "remedy_cancel"
 )
 
 // Action is what a callback button does. Buttons carry only the action's
@@ -162,6 +170,8 @@ type Action struct {
 	// EphemeralMessageID is the /silences answer the button is on, so it
 	// can be updated after the press.
 	EphemeralMessageID int `json:"ephemeralMessageId,omitempty"`
+	// RemedyID names the remediation action of a remedy* button.
+	RemedyID string `json:"remedyId,omitempty"`
 }
 
 // Open opens (creating if needed) the state file in dir.
@@ -174,7 +184,7 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("opening state file: %w", err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions, bucketBoards, bucketHistory, bucketDigests} {
+		for _, b := range [][]byte{bucketIncidents, bucketQueue, bucketActions, bucketBoards, bucketHistory, bucketDigests, bucketRemedies} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -402,6 +412,50 @@ func (s *Store) PruneResolved(cutoff time.Time) error {
 		return fmt.Errorf("pruning history: %w", err)
 	}
 	return nil
+}
+
+// ActionsOnAnswer returns the IDs of the actions whose buttons are on the
+// ephemeral answer ephemeralID in chat.
+func (s *Store) ActionsOnAnswer(ephemeralID int, chat int64) ([]string, error) {
+	if ephemeralID == 0 {
+		return nil, nil
+	}
+	var ids []string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketActions).ForEach(func(k, v []byte) error {
+			var a Action
+			if json.Unmarshal(v, &a) == nil && a.EphemeralMessageID == ephemeralID && a.ChatID == chat {
+				ids = append(ids, a.ID)
+			}
+			return nil
+		})
+	})
+	return ids, err
+}
+
+// RemedyRun claims a run of the remediation action id at now unless it ran
+// less than cooldown ago; then it returns false and the last run. The
+// check and the claim are one transaction, so two presses cannot both run.
+func (s *Store) RemedyRun(id string, now time.Time, cooldown time.Duration) (bool, time.Time, error) {
+	ok, last := false, time.Time{}
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketRemedies)
+		if v := b.Get([]byte(id)); v != nil {
+			if err := last.UnmarshalText(v); err == nil && now.Sub(last) < cooldown {
+				return nil
+			}
+		}
+		v, err := now.MarshalText()
+		if err != nil {
+			return err
+		}
+		ok = true
+		return b.Put([]byte(id), v)
+	})
+	if err != nil {
+		return false, time.Time{}, fmt.Errorf("recording remediation run: %w", err)
+	}
+	return ok, last, nil
 }
 
 // LastDigest returns the day ("2006-01-02") of the chat's last digest, or "".

@@ -7,6 +7,15 @@ each version's section as its GitHub release notes, so every release needs one.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+### Added
+- Remediation actions through Komodo (`REMEDIATION_FILE`, `KOMODO_URL`,
+  `KOMODO_API_KEY`, `KOMODO_API_SECRET`): predefined restart or redeploy of
+  a stack, or restart of a container, offered as 🛠 buttons on matching
+  alerts, confirmed by the presser, with a cooldown; the result is posted
+  under the alert. SECURITY.md §9.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added
@@ -95,7 +104,8 @@ each version's section as its GitHub release notes, so every release needs one.
 - Message length counted in code points as Telegram does; quoted values
   stripped from Telegram errors.
 
-[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.3.2...v0.4.0

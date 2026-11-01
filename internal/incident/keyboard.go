@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/komodo"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/store"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/telegram"
@@ -26,7 +27,15 @@ type ButtonConfig struct {
 	ActionTTL  time.Duration
 	GrafanaURL string
 	ShowSource bool
+	// Remedies are the remediation actions (REMEDIATION_FILE).
+	Remedies []komodo.Action
 }
+
+// maxRemedyButtons bounds the remediation buttons on one message.
+const maxRemedyButtons = 3
+
+// remedyKind is the issueButtons kind of a remediation button for action id.
+func remedyKind(id string) string { return store.ActionRemedy + ":" + id }
 
 // newActionID returns 128 random bits, URL-safe: all a button carries.
 func newActionID() string {
@@ -68,10 +77,21 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 	} else {
 		want = append(want, store.ActionAck)
 	}
+	remedies := map[string]komodo.Action{}
+	for _, r := range cfg.Remedies {
+		if len(remedies) < maxRemedyButtons && r.Offered(inc.GroupLabels) {
+			want = append(want, remedyKind(r.ID))
+			remedies[r.ID] = r
+		}
+	}
 
 	var have []string
 	for _, b := range inc.Buttons {
-		have = append(have, b.Kind)
+		k := b.Kind
+		if k == store.ActionRemedy {
+			k = remedyKind(b.RemedyID)
+		}
+		have = append(have, k)
 	}
 	fresh := slices.Equal(have, want) && now.Sub(inc.ButtonsIssued) < cfg.ActionTTL/2
 	if fresh && !force {
@@ -101,6 +121,10 @@ func (p *Processor) issueButtons(inc *store.Incident, now time.Time, force bool)
 			add(&store.Action{Kind: kind}, "👀 I'm on it")
 		case store.ActionRelease:
 			add(&store.Action{Kind: kind}, "↩️ Release")
+		default:
+			r := remedies[strings.TrimPrefix(kind, store.ActionRemedy+":")]
+			add(&store.Action{Kind: store.ActionRemedy, RemedyID: r.ID}, "🛠 "+r.Label)
+			refs[len(refs)-1].RemedyID = r.ID
 		}
 	}
 	if err := p.Store.PutActions(actions...); err != nil {
@@ -139,12 +163,14 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 	}
 	// Silence buttons in one row, "I'm on it" / "Release" in the next: four
 	// buttons in a row are too narrow on a phone.
-	var silenceRow, ackRow []telegram.Button
+	var silenceRow, ackRow, remedyRow []telegram.Button
 	for _, b := range inc.Buttons {
 		btn := telegram.Button{Text: b.Label, Data: b.ActionID}
 		switch b.Kind {
 		case store.ActionAck, store.ActionRelease:
 			ackRow = append(ackRow, btn)
+		case store.ActionRemedy:
+			remedyRow = append(remedyRow, btn)
 		case store.ActionUnsilence:
 			btn.Style = unsilenceStyle
 			fallthrough
@@ -152,7 +178,7 @@ func (p *Processor) keyboard(inc *store.Incident, m *alertmanager.Message, withL
 			silenceRow = append(silenceRow, btn)
 		}
 	}
-	for _, row := range [][]telegram.Button{silenceRow, ackRow} {
+	for _, row := range [][]telegram.Button{silenceRow, ackRow, remedyRow} {
 		if len(row) > 0 {
 			kb.Rows = append(kb.Rows, row)
 		}

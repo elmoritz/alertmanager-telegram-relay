@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 to v0.5 implemented** (see §13); later milestones are design. This
+Status: **v0.1 to v0.6 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -268,6 +268,43 @@ Inline keyboard under every firing message:
 - Notifications and button presses for the same group are processed one at a
   time, so the message is never edited from two sides at once.
 
+### Remediation actions
+
+- With `REMEDIATION_FILE` (JSON) and `KOMODO_URL`, `KOMODO_API_KEY` and
+  `KOMODO_API_SECRET`, predefined actions are offered as 🛠 buttons, in their
+  own row, on firing incidents whose group labels match (SECURITY.md §9):
+
+  ```json
+  {"actions": [
+    {"id": "restart-media", "label": "Restart stack media",
+     "operation": "RestartStack", "stack": "media",
+     "match": {"team": "media"}},
+    {"id": "redeploy-media", "label": "Redeploy stack media",
+     "operation": "DeployStack", "stack": "media", "services": ["jellyfin"],
+     "match": {"alertname": "JellyfinDown"}, "cooldown": "30m"},
+    {"id": "restart-proxy", "label": "Restart proxy",
+     "operation": "RestartContainer", "server": "server-1",
+     "container": "traefik", "match": {"alertname": "ProxyDown"}}
+  ]}
+  ```
+
+  `operation` is `RestartStack`, `DeployStack` (pull and `docker compose
+  up`) or `RestartContainer`; the target is fixed in the file. `match` needs
+  at least one label (exact values, all must match). `cooldown` defaults to
+  `10m`, at least `1m`. Unknown fields, other operations and anything
+  malformed stop the relay at startup. At most 3 actions per message.
+- A press shows a confirmation only the presser sees: "🛠 Restart stack
+  media? Komodo will run RestartStack on stack media." with [✅ Yes, …] and
+  [Cancel], valid for a minute and once. "Yes" checks again that the incident
+  is open and the action still offered, then the cooldown; within it, the
+  toast says when the action is possible again.
+- A run is posted as a silent reply to the incident, "🛠 Alice: Restart stack
+  media …", and edited with Komodo's result once it is complete ("✅ … done
+  after 32s", "❌ … failed; see Komodo", or "could not be started"). The relay
+  calls `POST /execute/<operation>` and polls `POST /read/GetUpdate` every 3
+  seconds, for at most 15 minutes; Komodo's logs stay in Komodo. Counted in
+  `relay_remediations_total`.
+
 ### Custom silence by reply
 
 - An admin can reply to an incident's message (or to one of its escalation
@@ -473,6 +510,9 @@ names the variable but never echoes its value.
 | `ESCALATE_AFTER` | v0.3 | | off | e.g. `15m`: loud reply to unacknowledged critical incidents, up to 3 times (§5) |
 | `STATUS_BOARD` | v0.3 | | `false` | Pinned status board per chat (§5) |
 | `DIGEST_AT` | v0.4 | | off | e.g. `08:30` in `TIMEZONE`: daily digest per chat (§6) |
+| `REMEDIATION_FILE` | v0.6 | | | JSON file with remediation actions (§5, SECURITY.md §9); needs the three below |
+| `KOMODO_URL` | v0.6 | with `REMEDIATION_FILE` | | Komodo Core, e.g. `https://komodo.example.com` |
+| `KOMODO_API_KEY`, `KOMODO_API_SECRET` | v0.6 | with `REMEDIATION_FILE` | | API key and secret of a dedicated Komodo user allowed to execute only on the stacks and servers concerned |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
@@ -503,9 +543,10 @@ names the variable but never echoes its value.
   | `relay_queue_length` | |
   | `relay_open_incidents` | |
   | `relay_telegram_updates_rejected_total` | |
-  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `end_silence`, `unknown`), `result` (`ok`, `error`, `stale`) |
+  | `relay_button_presses_total` | `action` (`silence`, `unsilence`, `custom`, `ack`, `release`, `end_silence`, `remedy`, `remedy_confirm`, `remedy_cancel`, `unknown`), `result` (`ok`, `error`, `stale`) |
   | `relay_escalations_total` | |
   | `relay_graph_images_total` | `result` (`ok`, `render_error`, `send_error`) |
+  | `relay_remediations_total` | `result` (`ok`, `failed`, `error`, `cooldown`) |
   | `relay_alertmanager_requests_total` | `op` (`create_silence`, `expire_silence`, `list_alerts`, `list_silences`), `result` (`ok`, `error`) |
 
 - Logs: `log/slog` JSON to stdout. Incidents are identified in logs by a short
@@ -555,7 +596,7 @@ names the variable but never echoes its value.
    tests for the parsers, a CHANGELOG and release notes, example alert rules
    for the newer metrics, and a documented stable contract for configuration
    and templates.
-6. **v0.6, remediation actions (planned):** predefined actions (e.g.
+6. **v0.6, remediation actions (done, live check passed):** predefined actions (e.g.
    restart a stack through Komodo) offered as buttons on matching alerts,
    for admins only, with a confirmation press and an audit log line. The
    relay itself runs nothing: it calls the executor's API with a stored

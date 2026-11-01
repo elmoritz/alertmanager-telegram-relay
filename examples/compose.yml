@@ -3,7 +3,7 @@
 # by the container user (uid 65532), e.g. `chmod 0444 secrets/*`.
 services:
   alertmanager-telegram-relay:
-    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.5.0
+    image: ghcr.io/elmoritz/alertmanager-telegram-relay:0.6.0
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -32,6 +32,12 @@ services:
       # internal address if GRAFANA_URL is a public one behind single sign-on.
       # GRAFANA_TOKEN_FILE: /run/secrets/grafana_token
       # GRAFANA_RENDER_URL: http://grafana:3000
+      # Remediation actions (SPEC §5, SECURITY.md §9), see remediation.json;
+      # a dedicated Komodo user allowed to execute only on those stacks.
+      # REMEDIATION_FILE: /run/secrets/remediation.json
+      # KOMODO_URL: https://komodo.example.com
+      # KOMODO_API_KEY_FILE: /run/secrets/komodo_api_key
+      # KOMODO_API_SECRET_FILE: /run/secrets/komodo_api_secret
     secrets: [telegram_bot_token, relay_webhook_secret]
     volumes:
       - relay-data:/data

@@ -16,6 +16,7 @@ import (
 	"time"
 	_ "time/tzdata" // the distroless image has no zoneinfo
 
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/komodo"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/route"
 )
 
@@ -72,6 +73,13 @@ type Config struct {
 	StatusBoard   bool
 	// DigestAt is DIGEST_AT in minutes after midnight in TIMEZONE; nil: off.
 	DigestAt *int
+
+	// Remediation actions (SECURITY.md §9): from REMEDIATION_FILE, run
+	// through Komodo at KomodoURL. Empty Remedies: off.
+	Remedies     []komodo.Action
+	KomodoURL    string
+	KomodoKey    string
+	KomodoSecret string
 }
 
 // MaxSilence is the longest silence a button may create (SECURITY.md §3).
@@ -226,6 +234,26 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 			c.DigestAt = &m
 		}
 	}
+	c.KomodoKey, c.KomodoSecret = secret("KOMODO_API_KEY"), secret("KOMODO_API_SECRET")
+	if v := str("KOMODO_URL", ""); v != "" {
+		if u, err := httpBaseURL(v); err != nil {
+			fail(fmt.Errorf("KOMODO_URL: %w", err))
+		} else {
+			c.KomodoURL = u.String()
+		}
+	}
+	if f := str("REMEDIATION_FILE", ""); f != "" {
+		if b, err := readFile(f); err != nil {
+			fail(fmt.Errorf("REMEDIATION_FILE: %w", err))
+		} else if c.Remedies, err = komodo.ParseActions(b); err != nil {
+			fail(fmt.Errorf("REMEDIATION_FILE: %w", err))
+		}
+		if c.KomodoURL == "" || c.KomodoKey == "" || c.KomodoSecret == "" {
+			fail(errors.New("REMEDIATION_FILE needs KOMODO_URL, KOMODO_API_KEY and KOMODO_API_SECRET"))
+		}
+	} else if c.KomodoURL != "" || c.KomodoKey != "" || c.KomodoSecret != "" {
+		fail(errors.New("KOMODO_* is set but REMEDIATION_FILE is not; without actions Komodo is not used"))
+	}
 	if c.StatusBoard, err = strconv.ParseBool(str("STATUS_BOARD", "false")); err != nil {
 		fail(fmt.Errorf("STATUS_BOARD: %w", err))
 	}
@@ -342,8 +370,9 @@ func (c *Config) Quiet() route.Quiet {
 // String returns a redacted description safe to log. Value receivers, so
 // both Config and *Config are covered.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s AlertmanagerAuth:%s GrafanaToken:%s}",
-		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret), c.alertmanagerAuth(), redact(c.GrafanaToken))
+	return fmt.Sprintf("Config{ListenAddr:%s StateDir:%s Chats:%d Admins:%d BotToken:%s WebhookSecret:%s AlertmanagerAuth:%s GrafanaToken:%s KomodoKey:%s KomodoSecret:%s}",
+		c.ListenAddr, c.StateDir, len(c.ChatIDs), len(c.AdminUserIDs), redact(c.BotToken), redact(c.WebhookSecret), c.alertmanagerAuth(), redact(c.GrafanaToken),
+		redact(c.KomodoKey), redact(c.KomodoSecret))
 }
 
 // GoString keeps %#v from printing the fields.
@@ -373,6 +402,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("escalate_after", c.EscalateAfter.String()),
 		slog.Bool("status_board", c.StatusBoard),
 		slog.Bool("digest", c.DigestAt != nil),
+		slog.Int("remediation_actions", len(c.Remedies)),
 	)
 }
 

@@ -268,3 +268,53 @@ func TestRoutingAndQuietInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestRemediation(t *testing.T) {
+	files := func(content map[string]string) func(string) ([]byte, error) {
+		return func(name string) ([]byte, error) {
+			if v, ok := content[name]; ok {
+				return []byte(v), nil
+			}
+			return nil, fs.ErrNotExist
+		}
+	}
+	actions := `{"actions":[{"id":"restart-media","label":"Restart stack media","operation":"RestartStack","stack":"media","match":{"team":"media"}}]}`
+	m := valid()
+	m["REMEDIATION_FILE"] = "/run/secrets/remediation.json"
+	m["KOMODO_URL"] = "https://komodo.example.com"
+	m["KOMODO_API_KEY_FILE"] = "/run/secrets/komodo_key"
+	m["KOMODO_API_SECRET_FILE"] = "/run/secrets/komodo_secret"
+	c, err := load(env(m), files(map[string]string{"/run/secrets/remediation.json": actions, "/run/secrets/komodo_key": "K-test-key", "/run/secrets/komodo_secret": "S-test-secret"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Remedies) != 1 || c.KomodoURL != "https://komodo.example.com" || c.KomodoKey != "K-test-key" {
+		t.Errorf("got %+v", c)
+	}
+	var logged strings.Builder
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("c", "c", c)
+	if strings.Contains(logged.String()+c.String(), "S-test-secret") || strings.Contains(logged.String()+c.String(), "K-test-key") {
+		t.Error("komodo credentials printed")
+	}
+
+	for name, set := range map[string]map[string]string{
+		"file without komodo": {"REMEDIATION_FILE": "/run/secrets/remediation.json", "KOMODO_URL": "", "KOMODO_API_KEY_FILE": "", "KOMODO_API_SECRET_FILE": ""},
+		"komodo without file": {"REMEDIATION_FILE": ""},
+		"missing file":        {"REMEDIATION_FILE": "/run/secrets/missing.json"},
+		"bad komodo url":      {"KOMODO_URL": "ftp://komodo"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mm := maps.Clone(m)
+			for k, v := range set {
+				if v == "" {
+					delete(mm, k)
+				} else {
+					mm[k] = v
+				}
+			}
+			if _, err := load(env(mm), files(map[string]string{"/run/secrets/remediation.json": actions, "/run/secrets/komodo_key": "K-test-key", "/run/secrets/komodo_secret": "S-test-secret"})); err == nil {
+				t.Fatal("want error")
+			}
+		})
+	}
+}

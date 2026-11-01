@@ -223,3 +223,21 @@ func TestHistory(t *testing.T) {
 		t.Errorf("last digest = %q", day)
 	}
 }
+
+func TestRemedyRun(t *testing.T) {
+	s := open(t)
+	t0 := time.Date(2026, 3, 2, 4, 0, 0, 0, time.UTC)
+	if ok, _, err := s.RemedyRun("restart-media", t0, 10*time.Minute); !ok || err != nil {
+		t.Fatalf("first run: %v %v", ok, err)
+	}
+	ok, last, _ := s.RemedyRun("restart-media", t0.Add(9*time.Minute), 10*time.Minute)
+	if ok || !last.Equal(t0) {
+		t.Errorf("within cooldown: ok %v last %v", ok, last)
+	}
+	if ok, _, _ := s.RemedyRun("other", t0.Add(time.Minute), 10*time.Minute); !ok {
+		t.Error("cooldowns are per action")
+	}
+	if ok, _, _ := s.RemedyRun("restart-media", t0.Add(10*time.Minute), 10*time.Minute); !ok {
+		t.Error("after the cooldown")
+	}
+}

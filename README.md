@@ -17,7 +17,8 @@ built-in Telegram receiver cannot do:
 > labels, quiet severities and quiet hours; escalation of unacknowledged
 > critical alerts; an optional pinned status board; `/alerts` and
 > `/silences` answered only to whoever asks; an optional daily digest; Grafana
-> panel images for new alerts. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
+> panel images for new alerts; optional remediation buttons that restart or
+> redeploy a stack through Komodo, with confirmation. See [docs/SPEC.md](docs/SPEC.md) for the full feature description
 > and roadmap, [examples/](examples/) for a Compose setup, the Alertmanager
 > receiver and the fallback alerts, [CHANGELOG.md](CHANGELOG.md) for what
 > changed, and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for what stays
