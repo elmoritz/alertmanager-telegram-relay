@@ -356,9 +356,8 @@ Inline keyboard under every firing message:
 - A 👀 or 👍 from an admin on an escalation reply acknowledges the incident,
   like one on the incident's message. Quiet severities and quiet hours do not apply: critical always
   rings. Checked every minute; counted in `relay_escalations_total`.
-- Direct messages to admins (also proposed in #5) are not implemented: they
-  would carry alert text outside the allowed chats and need a change to
-  SECURITY.md first.
+- Direct messages to admins (also proposed in #5) are not planned: they
+  would carry alert text outside the allowed chats.
 
 ### Status board
 
@@ -589,7 +588,9 @@ names the variable but never echoes its value.
 4. **v0.4, extras:** `/alerts` and `/silences` as ephemeral answers (#10)
    and the daily digest (#12) in v0.4.0; graph images (§8) in v0.4.1; rich
    messages evaluated and not adopted (#11, see §4). Live checks passed.
-   Still open: topics in private chats (#9).
+   Topics in private chats (#9) were dropped: forum groups already give
+   topics, and private-chat topics need BotFather's threaded mode, may cost
+   a fee and were reported to fail.
 5. **v0.5, v1.0 readiness (done, live check passed):** show silences made outside
    Telegram (Alertmanager UI, amtool) on the incident's message; tell alerts
    with the same summary apart by the label that differs; hardening: fuzz
@@ -602,6 +603,11 @@ names the variable but never echoes its value.
    relay itself runs nothing: it calls the executor's API with a stored
    action, never with text from an alert or a chat. Starts with a SECURITY.md
    section, reviewed before any code.
+7. **v1.0 (planned):** declared after 0.6.x has run for a week next to an
+   existing receiver in a real installation without issues; from then on
+   docs/COMPATIBILITY.md is binding. Escalation by direct message (the rest
+   of #5) is not planned: it would carry alert text outside the allowed
+   chats.
 
 A milestone's scope is the list above **plus the open issues in the GitHub
 milestone of the same name**; it is done when both are, and the live check

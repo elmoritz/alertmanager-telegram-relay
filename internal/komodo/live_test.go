@@ -66,6 +66,25 @@ func TestLiveRestartStack(t *testing.T) {
 	}
 	t.Logf("redeployed in %s", time.Since(start).Round(100*time.Millisecond))
 
+	// RestartContainer needs a standalone throwaway container the Komodo
+	// user may restart: RELAY_LIVE_KOMODO_SERVER and _CONTAINER.
+	if server, container := os.Getenv("RELAY_LIVE_KOMODO_SERVER"), os.Getenv("RELAY_LIVE_KOMODO_CONTAINER"); server != "" && container != "" {
+		restart, err := komodo.ParseActions([]byte(`{"actions":[{"id":"live","label":"Restart test container","operation":"RestartContainer","server":"` + server + `","container":"` + container + `","match":{"alertname":"RelayLiveTest"}}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start = time.Now()
+		if id, err = c.Start(ctx, restart[0]); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err = c.Wait(ctx, id); err != nil || !ok {
+			t.Fatalf("restart container: ok %v, err %v", ok, err)
+		}
+		t.Logf("restarted the container in %s", time.Since(start).Round(100*time.Millisecond))
+	} else {
+		t.Log("RELAY_LIVE_KOMODO_SERVER or _CONTAINER not set: RestartContainer not checked")
+	}
+
 	// A wrong secret fails without leaking it.
 	_, err = komodo.New(u, read(keyFile), "S-wrong").Start(ctx, actions[0])
 	if err == nil || strings.Contains(err.Error(), "S-wrong") {
