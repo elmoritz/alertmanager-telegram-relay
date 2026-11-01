@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/alertmanager"
@@ -43,6 +44,10 @@ type Buttons struct {
 	// BotUsername is the bot's @username, to tell "/alerts@thisbot" from a
 	// command for another bot.
 	BotUsername string
+	// Komodo runs remediation actions; nil without REMEDIATION_FILE.
+	Komodo Runner
+
+	remedies sync.WaitGroup
 
 	emptySince map[string]time.Time // CheckSilenced: group key → first check without alerts
 }
@@ -118,8 +123,12 @@ func (b *Buttons) press(ctx context.Context, cq *telegram.CallbackQuery) {
 		b.answer(ctx, cq, toastExpired)
 		return
 	}
-	if action.Kind == store.ActionEndSilence {
+	switch action.Kind {
+	case store.ActionEndSilence:
 		b.endSilence(ctx, cq, action)
+		return
+	case store.ActionRemedyConfirm, store.ActionRemedyCancel:
+		b.decideRemedy(ctx, cq, action)
 		return
 	}
 
@@ -154,6 +163,8 @@ func (b *Buttons) press(ctx context.Context, cq *telegram.CallbackQuery) {
 		toast, changed = b.unsilence(ctx, log, inc, action)
 	case store.ActionCustom:
 		toast = b.promptCustom(ctx, log, inc, cq.From)
+	case store.ActionRemedy:
+		toast = b.offerRemedy(ctx, log, inc, action, cq.From)
 	case store.ActionAck:
 		toast, changed = toastAcked, b.ack(log, inc, cq.From, now)
 	case store.ActionRelease:

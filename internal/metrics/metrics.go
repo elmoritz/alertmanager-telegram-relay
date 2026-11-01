@@ -34,6 +34,8 @@ type Metrics struct {
 	Escalations prometheus.Counter
 	// GraphImages counts graph images by result (ok, render_error, send_error).
 	GraphImages *prometheus.CounterVec
+	// Remediations counts confirmed remediation actions by result.
+	Remediations *prometheus.CounterVec
 }
 
 // New registers the metrics. queueLen and openIncidents are read on scrape.
@@ -71,7 +73,7 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 		}),
 		ButtonPresses: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_button_presses_total",
-			Help: "Button presses by allowed users, by action (silence, unsilence, custom, ack, release, end_silence, unknown) and result (ok, error, stale).",
+			Help: "Button presses by allowed users, by action (silence, unsilence, custom, ack, release, end_silence, remedy, remedy_confirm, remedy_cancel, unknown) and result (ok, error, stale).",
 		}, []string{"action", "result"}),
 		AlertmanagerRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "relay_alertmanager_requests_total",
@@ -85,11 +87,15 @@ func New(queueLen, openIncidents func() float64) *Metrics {
 			Name: "relay_graph_images_total",
 			Help: "Grafana panel images for new incidents, by result (ok, render_error, send_error).",
 		}, []string{"result"}),
+		Remediations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "relay_remediations_total",
+			Help: "Confirmed remediation actions, by result (ok, failed, error, cooldown).",
+		}, []string{"result"}),
 	}
 	reg.MustRegister(
 		m.NotificationsReceived, m.WebhookRejected, m.TelegramRequests,
 		m.DeliveryRetries, m.DeliveriesDropped, m.TemplateErrors,
-		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests, m.Escalations, m.GraphImages,
+		m.UpdatesRejected, m.ButtonPresses, m.AlertmanagerRequests, m.Escalations, m.GraphImages, m.Remediations,
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "relay_queue_length",
 			Help: "Notifications waiting to be delivered to Telegram.",

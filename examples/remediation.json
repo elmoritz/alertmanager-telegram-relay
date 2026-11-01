@@ -1,0 +1,11 @@
+{"actions": [
+  {"id": "restart-media", "label": "Restart stack media",
+   "operation": "RestartStack", "stack": "media",
+   "match": {"team": "media"}},
+  {"id": "redeploy-media", "label": "Redeploy stack media",
+   "operation": "DeployStack", "stack": "media",
+   "match": {"alertname": "MediaStackUnhealthy"}, "cooldown": "30m"},
+  {"id": "restart-proxy", "label": "Restart proxy",
+   "operation": "RestartContainer", "server": "server-1", "container": "traefik",
+   "match": {"alertname": "ProxyDown"}}
+]}

@@ -16,7 +16,8 @@ break the stable list too; the CHANGELOG says so when it does.
   relay reads (`summary`, `description`, `message`, `dashboard_url`,
   `runbook_url`, `copy_command`, `panel_url`) and labels (`severity`,
   `instance`, `alertname`); the `ROUTES` syntax; the reply syntax for custom
-  silences (`3h reason`); the commands `/alerts` and `/silences`.
+  silences (`3h reason`); the commands `/alerts` and `/silences`; the
+  `REMEDIATION_FILE` format.
 - **Templates** (`TEMPLATE_FILE`, SPEC §4): the block names, the fields of the
   template data and the helper functions with their arguments. New blocks,
   fields and helpers may be added; the default template defines every block,

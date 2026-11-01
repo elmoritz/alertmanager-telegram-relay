@@ -7,6 +7,13 @@ each version's section as its GitHub release notes, so every release needs one.
 
 ## [Unreleased]
 
+### Added
+- Remediation actions through Komodo (`REMEDIATION_FILE`, `KOMODO_URL`,
+  `KOMODO_API_KEY`, `KOMODO_API_SECRET`): predefined restart or redeploy of
+  a stack, or restart of a container, offered as 🛠 buttons on matching
+  alerts, confirmed by the presser, with a cooldown; the result is posted
+  under the alert. SECURITY.md §9.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added

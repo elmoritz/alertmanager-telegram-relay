@@ -25,6 +25,7 @@ import (
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/config"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/grafana"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/incident"
+	"github.com/elmoritz/alertmanager-telegram-relay/internal/komodo"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/metrics"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/render"
 	"github.com/elmoritz/alertmanager-telegram-relay/internal/store"
@@ -105,6 +106,7 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 			ActionTTL:  actionTTL,
 			GrafanaURL: cfg.GrafanaURL,
 			ShowSource: cfg.ShowSourceButton,
+			Remedies:   cfg.Remedies,
 		},
 		Reminders:     cfg.Reminders,
 		ResolveReply:  cfg.ResolveReply,
@@ -147,6 +149,10 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	}
 	if processor.EscalateAfter > 0 {
 		go every(runCtx, incident.EscalationCheckInterval, processor.CheckEscalations)
+	}
+	if len(cfg.Remedies) > 0 {
+		u, _ := url.Parse(cfg.KomodoURL) // validated by config
+		buttons.Komodo = komodo.New(u, cfg.KomodoKey, cfg.KomodoSecret)
 	}
 	if cfg.GrafanaToken != "" {
 		base, _ := url.Parse(cfg.GrafanaURL) // validated by config
@@ -232,6 +238,7 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	stopWorkers()
 	dispatcher.Wait()
 	processor.WaitGraphs()
+	buttons.WaitRemedies()
 	if n, _ := st.QueueLen(); n > 0 {
 		log.Warn("notifications left queued for the next start", "count", n)
 	}

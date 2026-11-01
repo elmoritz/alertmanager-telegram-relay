@@ -163,3 +163,38 @@ the Telegram account that owns the bot.
 - Test fixtures are written by hand, not copied from real payloads.
 - Deployment configuration for any specific installation lives in that
   installation's own (private) repository, not here.
+
+### 9. Remediation actions (relay → Komodo)
+
+- **Off by default.** Actions exist only if the operator defines them in
+  `REMEDIATION_FILE` (JSON). No file, no buttons. An invalid file stops the
+  relay at startup.
+- **Only predefined actions.** Each has a fixed ID, label, Komodo operation
+  and fixed target (e.g. `RestartStack` on stack `media`). Nothing from an
+  alert, a label value, a button or a chat message goes into the request: no
+  templating, no parameters. The operations come from a fixed list in the
+  code: restart or redeploy a stack, restart a container. Nothing that
+  deletes, prunes or changes configuration.
+- **Offered only where configured.** At least one exact matcher on the group
+  labels decides which alerts an action appears on. Never on resolved
+  incidents, never through commands.
+- **Same checks as silence buttons** (§2, §3): allowed chat and allowed user,
+  a stored random action ID, the incident's current message.
+- **Two steps.** The first press only shows a confirmation that only the
+  presser sees ("🛠 Restart stack media? [Yes, restart] [Cancel]"). Only a
+  press of "Yes" by the same user within 60 seconds runs it. Every action ID
+  is single-use.
+- **Cooldown.** Each action runs at most once per cooldown (default 10
+  minutes, at least 1 minute), so a flapping alert cannot cause a restart
+  loop.
+- **Visible and logged.** Each run is posted to the chat as a reply ("🛠
+  Alice: Restart stack media", then its result) and logged at info level with
+  the action, the incident, the user ID and Komodo's result.
+- **Least privilege in Komodo.** The API key and secret come only from
+  `*_FILE`, are never logged, and belong to a dedicated Komodo user that may
+  execute only on the stacks and servers concerned. Komodo's response bodies
+  and logs are not logged or posted.
+- **Accepted risk.** Someone who takes over an admin's Telegram account can
+  run the predefined actions. The confirmation, the cooldown, the short list
+  of operations and Komodo's restricted rights limit the damage; leave
+  `REMEDIATION_FILE` unset if that is too much.
