@@ -27,6 +27,7 @@ type Telegram interface {
 	EditMessageText(ctx context.Context, chatID int64, messageID int, text string, kb *telegram.Keyboard) error
 	SetMessageReaction(ctx context.Context, chatID int64, messageID int, emoji string) error
 	PinChatMessage(ctx context.Context, chatID int64, messageID int) error
+	DeleteMessage(ctx context.Context, chatID int64, messageID int) error
 	EditEphemeralMessageText(ctx context.Context, chatID int64, ephemeralID int, receiver int64, text string, kb *telegram.Keyboard) error
 	SendPhoto(ctx context.Context, p telegram.Photo) (int, error)
 }
@@ -47,8 +48,11 @@ type Processor struct {
 	Log      *slog.Logger
 	Buttons  ButtonConfig
 
-	Reminders    string // config.Reminders*
-	ResolveReply bool
+	Reminders string // config.Reminders*
+	// RemindersReplace deletes an incident's previous reminder when posting
+	// the next one, so at most one is visible (REMINDERS_REPLACE).
+	RemindersReplace bool
+	ResolveReply     bool
 	// Router picks the chat and topic of a new incident; Quiet decides which
 	// notifications are sent without sound (SPEC §7).
 	Router route.Router
@@ -165,11 +169,8 @@ func (p *Processor) Handle(ctx context.Context, chatID int64, m *alertmanager.Me
 			}
 			return nil
 		}
-		switch p.Reminders {
-		case config.RemindersReply:
-			j.reply(inc.MessageID, p.Render.Reminder, d, quiet)
-		case config.RemindersSilent:
-			j.reply(inc.MessageID, p.Render.Reminder, d, true)
+		if p.Reminders != config.RemindersOff {
+			j.remind(inc, d, quiet || p.Reminders == config.RemindersSilent)
 		}
 		log.Info("incident still firing")
 		return nil
@@ -381,17 +382,42 @@ func (j *job) react(inc *store.Incident, resolved bool) {
 	}
 }
 
+// remind sends the reminder reply. With RemindersReplace it first deletes
+// the incident's previous reminder; if Telegram refuses (older than 48
+// hours, or deleted by hand), the old one stays and the new one is sent
+// anyway.
+func (j *job) remind(inc *store.Incident, d render.Data, silent bool) {
+	p := j.p
+	if p.RemindersReplace && inc.ReminderMessageID != 0 {
+		ctx, cancel := context.WithTimeout(j.ctx, 10*time.Second)
+		if err := p.Telegram.DeleteMessage(ctx, inc.ChatID, inc.ReminderMessageID); err != nil {
+			j.log.Debug("deleting the previous reminder failed", "err", err)
+		}
+		cancel()
+	}
+	id := j.reply(inc.MessageID, p.Render.Reminder, d, silent)
+	if !p.RemindersReplace || id == 0 {
+		return
+	}
+	inc.ReminderMessageID = id
+	if err := p.Store.PutIncident(inc); err != nil {
+		j.log.Warn("storing the reminder failed", "err", err)
+	}
+}
+
 // reply sends a best-effort reply: a failure is logged, never retried past
 // the job's deadline and never blocks the incident.
-func (j *job) reply(to int, render func(render.Data) (string, error), d render.Data, silent bool) {
+func (j *job) reply(to int, render func(render.Data) (string, error), d render.Data, silent bool) int {
 	text, err := render(d)
 	if err != nil {
 		j.p.Metrics.TemplateErrors.Inc()
 		j.log.Error("reply template failed, using fallback", "err", err)
 	}
-	if _, err := j.send(view{text: text, minimal: text}, to, silent); err != nil {
+	id, err := j.send(view{text: text, minimal: text}, to, silent)
+	if err != nil {
 		j.log.Warn("reply not delivered", "err", err)
 	}
+	return id
 }
 
 // withFallback tries the variants of v in order while Telegram rejects the

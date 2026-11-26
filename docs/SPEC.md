@@ -1,6 +1,6 @@
 # alertmanager-telegram-relay: specification
 
-Status: **v0.1 to v0.6 implemented** (see §13); later milestones are design. This
+Status: **v0.1 to v0.7 implemented** (see §13); later milestones are design. This
 document is the source of truth for what the relay does. Change it in the same PR as the behaviour it
 describes. Points marked **(verify)** are assumptions about Telegram or
 Alertmanager that must be checked against the real API before relying on them.
@@ -83,7 +83,7 @@ firing notification until all of its alerts are resolved.
 | Group fires, no open incident for this `groupKey` | `sendMessage`: new message with buttons; store `groupKey → message_id`, open incident | yes (see §7 for quiet severities) |
 | Same incident, alert set changed (alert added) | `editMessageText` on the original, AND a short reply to it ("+1 firing: …") so the change is noticed | yes, the reply |
 | Same incident, alert set changed (some resolved, some still firing) | `editMessageText` only | no |
-| Same incident, nothing changed (Alertmanager `repeat_interval` reminder) | short reply to the original: "still firing, 4 h" | configurable: `REMINDERS=reply\|silent\|off` (default `reply`) |
+| Same incident, nothing changed (Alertmanager `repeat_interval` reminder) | short reply to the original: "still firing, 4 h"; with `REMINDERS_REPLACE=true` the previous reminder is deleted first, so at most one is visible | configurable: `REMINDERS=reply\|silent\|off` (default `reply`) |
 | Group resolved | `editMessageText` to the resolved layout; the keyboard becomes one disabled button "✅ Resolved after 2h 5m"; close incident | no; optional silent reply (`RESOLVE_REPLY=true`) |
 | Group resolved, but no open incident (state lost or expired) | `sendMessage` with the resolved layout | no (silent) |
 | Original message can no longer be edited or was deleted | fall back to a new message; store the new `message_id` | yes (no, for a resolve) |
@@ -513,6 +513,7 @@ names the variable but never echoes its value.
 | `KOMODO_URL` | v0.6 | with `REMEDIATION_FILE` | | Komodo Core, e.g. `https://komodo.example.com` |
 | `KOMODO_API_KEY`, `KOMODO_API_SECRET` | v0.6 | with `REMEDIATION_FILE` | | API key and secret of a dedicated Komodo user allowed to execute only on the stacks and servers concerned |
 | `REMINDERS` | v0.1 | | `reply` | `reply`, `silent` or `off` |
+| `REMINDERS_REPLACE` | v0.7 | | `false` | Delete an incident's previous reminder when posting the next one; Telegram allows deleting only for 48 hours, after that the old one stays. No effect with `REMINDERS=off` (warning at startup) |
 | `RESOLVE_REPLY` | v0.1 | | `false` | Silent reply on resolve in addition to the edit |
 | `GRAFANA_URL` | v0.2 | | | Dashboard button fallback, graph rendering |
 | `GRAFANA_TOKEN` | v0.4 | for graph images | | Grafana service-account token (Viewer); turns on graph images (§8) |
@@ -603,7 +604,9 @@ names the variable but never echoes its value.
    relay itself runs nothing: it calls the executor's API with a stored
    action, never with text from an alert or a chat. Starts with a SECURITY.md
    section, reviewed before any code.
-7. **v1.0 (planned):** declared after 0.6.x has run for a week next to an
+7. **v0.7, quieter reminders (done, live check passed):** `REMINDERS_REPLACE` keeps at
+   most one reminder per incident visible; combines with `REMINDERS=silent`.
+8. **v1.0 (planned):** declared after 0.6.x has run for a week next to an
    existing receiver in a real installation without issues; from then on
    docs/COMPATIBILITY.md is binding. Escalation by direct message (the rest
    of #5) is not planned: it would carry alert text outside the allowed

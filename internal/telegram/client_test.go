@@ -398,6 +398,18 @@ func TestForceReply(t *testing.T) {
 	}
 }
 
+func TestDeleteMessage(t *testing.T) {
+	f := &fake{t: t}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	if err := New(srv.URL, testToken).DeleteMessage(context.Background(), -1001234567890, 42); err != nil {
+		t.Fatal(err)
+	}
+	if f.paths[0] != "/bot"+testToken+"/deleteMessage" || f.requests[0]["message_id"] != float64(42) {
+		t.Errorf("request %s %v", f.paths[0], f.requests[0])
+	}
+}
+
 func TestSetMessageReaction(t *testing.T) {
 	f := &fake{t: t}
 	srv := httptest.NewServer(f)

@@ -66,6 +66,9 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 	}
 	level.Set(cfg.LogLevel)
 	log.Info("starting", "version", version, "config", cfg)
+	if cfg.RemindersReplace && cfg.Reminders == config.RemindersOff {
+		log.Warn("REMINDERS_REPLACE has no effect with REMINDERS=off")
+	}
 
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -108,17 +111,18 @@ func run(ctx context.Context, log *slog.Logger, level *slog.LevelVar, telegramUR
 			ShowSource: cfg.ShowSourceButton,
 			Remedies:   cfg.Remedies,
 		},
-		Reminders:     cfg.Reminders,
-		ResolveReply:  cfg.ResolveReply,
-		Router:        cfg.Router(),
-		Quiet:         cfg.Quiet(),
-		EscalateAfter: cfg.EscalateAfter,
-		DigestAt:      cfg.DigestAt,
-		DigestChats:   cfg.ChatIDs,
-		Location:      cfg.Location,
-		RetryFor:      retryFor,
-		Now:           time.Now,
-		Sleep:         incident.SleepContext,
+		Reminders:        cfg.Reminders,
+		RemindersReplace: cfg.RemindersReplace,
+		ResolveReply:     cfg.ResolveReply,
+		Router:           cfg.Router(),
+		Quiet:            cfg.Quiet(),
+		EscalateAfter:    cfg.EscalateAfter,
+		DigestAt:         cfg.DigestAt,
+		DigestChats:      cfg.ChatIDs,
+		Location:         cfg.Location,
+		RetryFor:         retryFor,
+		Now:              time.Now,
+		Sleep:            incident.SleepContext,
 	}
 	buttons := &incident.Buttons{
 		BotUsername:  botName,

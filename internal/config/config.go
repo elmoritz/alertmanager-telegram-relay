@@ -41,10 +41,11 @@ type Config struct {
 	TemplateFile string
 	Location     *time.Location
 
-	Reminders    string
-	ResolveReply bool
-	IncidentTTL  time.Duration
-	LogLevel     slog.Level
+	Reminders        string
+	RemindersReplace bool
+	ResolveReply     bool
+	IncidentTTL      time.Duration
+	LogLevel         slog.Level
 
 	// AlertmanagerURL is nil when unset; silence buttons are then not offered.
 	AlertmanagerURL      *url.URL
@@ -155,6 +156,9 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 		fail(fmt.Errorf("REMINDERS: must be reply, silent or off, got %q", c.Reminders))
 	}
 
+	if c.RemindersReplace, err = strconv.ParseBool(str("REMINDERS_REPLACE", "false")); err != nil {
+		fail(fmt.Errorf("REMINDERS_REPLACE: %w", err))
+	}
 	if c.ResolveReply, err = strconv.ParseBool(str("RESOLVE_REPLY", "false")); err != nil {
 		fail(fmt.Errorf("RESOLVE_REPLY: %w", err))
 	}
@@ -399,6 +403,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("routes", len(c.Routes)),
 		slog.Any("quiet_severities", c.QuietSeverities),
 		slog.Bool("quiet_hours", c.QuietHours != nil),
+		slog.Bool("reminders_replace", c.RemindersReplace),
 		slog.String("escalate_after", c.EscalateAfter.String()),
 		slog.Bool("status_board", c.StatusBoard),
 		slog.Bool("digest", c.DigestAt != nil),

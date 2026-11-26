@@ -568,6 +568,16 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout time.Dura
 	return updates, err
 }
 
+// DeleteMessage deletes a message the bot sent. Telegram allows that only
+// for messages sent less than 48 hours ago.
+func (c *Client) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {
+	params := struct {
+		ChatID    int64 `json:"chat_id"`
+		MessageID int   `json:"message_id"`
+	}{chatID, messageID}
+	return c.call(ctx, "deleteMessage", params, nil)
+}
+
 // PinChatMessage pins a message without notifying the chat. The bot needs
 // the right to pin messages.
 func (c *Client) PinChatMessage(ctx context.Context, chatID int64, messageID int) error {
