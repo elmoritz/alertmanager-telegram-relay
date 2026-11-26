@@ -395,3 +395,19 @@ func TestLiveEphemeral(t *testing.T) {
 		t.Errorf("set commands: %v", err)
 	}
 }
+
+// REMINDERS_REPLACE deletes the previous reminder.
+func TestLiveDeleteMessage(t *testing.T) {
+	tg, chat := livetest.Telegram(t)
+	c := ctx(t)
+	id, err := send(t, tg, c, telegram.Message{ChatID: chat, Text: livetest.Prefix + ": deleted right away", Silent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tg.DeleteMessage(c, chat, id); err != nil {
+		t.Errorf("delete: %v", err)
+	}
+	if err := tg.DeleteMessage(c, chat, id); err == nil {
+		t.Error("deleting it again succeeded")
+	}
+}

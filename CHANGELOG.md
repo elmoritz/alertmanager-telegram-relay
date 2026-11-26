@@ -7,6 +7,12 @@ each version's section as its GitHub release notes, so every release needs one.
 
 ## [Unreleased]
 
+### Added
+- `REMINDERS_REPLACE=true` deletes an incident's previous reminder when the
+  next one is posted, so at most one is visible; combines with
+  `REMINDERS=silent`. Deleting works for 48 hours (a Telegram limit); older
+  reminders stay.
+
 ## [0.6.0] - 2026-11-01
 
 ### Added

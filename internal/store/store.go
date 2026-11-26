@@ -82,6 +82,8 @@ type Incident struct {
 	PromptMessageIDs []int `json:"promptMessageIds,omitempty"`
 	// Reaction is the bot's current reaction on the message ("" for none).
 	Reaction string `json:"reaction,omitempty"`
+	// ReminderMessageID is the last reminder reply, for REMINDERS_REPLACE.
+	ReminderMessageID int `json:"reminderMessageId,omitempty"`
 }
 
 // Ack is an "I'm on it" from an admin. It changes only the relay's state.
