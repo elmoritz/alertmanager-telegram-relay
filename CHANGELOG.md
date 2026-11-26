@@ -7,6 +7,8 @@ each version's section as its GitHub release notes, so every release needs one.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Added
 - `REMINDERS_REPLACE=true` deletes an incident's previous reminder when the
   next one is posted, so at most one is visible; combines with
@@ -110,7 +112,8 @@ each version's section as its GitHub release notes, so every release needs one.
 - Message length counted in code points as Telegram does; quoted values
   stripped from Telegram errors.
 
-[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/elmoritz/alertmanager-telegram-relay/compare/v0.4.0...v0.4.1
